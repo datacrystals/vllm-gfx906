@@ -241,6 +241,11 @@ def on_gfx942() -> bool:
 def on_gfx950() -> bool:
     return _ON_GFX950
 
+@cache
+def on_gfx906() -> bool:
+    GPU_ARCH = torch.cuda.get_device_properties("cuda").gcnArchName
+    return any(arch in GPU_ARCH for arch in ["gfx906"])
+
 
 @cache
 def use_rocm_custom_paged_attention(
@@ -348,6 +353,11 @@ class RocmPlatform(Platform):
         # Import ROCm-specific extension
         with contextlib.suppress(ImportError):
             import vllm._rocm_C  # noqa: F401
+
+    @property
+    def supported_dtypes(self) -> list[torch.dtype]:
+        # no bfloat16 for gfx906
+        return [torch.float16, torch.float32]
 
     @classmethod
     def get_attn_backend_cls(

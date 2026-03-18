@@ -1,0 +1,2852 @@
+diff --git a/.github/.bc-linter.yml b/.github.orig/.bc-linter.yml
+similarity index 100%
+rename from .github/.bc-linter.yml
+rename to .github.orig/.bc-linter.yml
+diff --git a/.github/CODEOWNERS b/.github.orig/CODEOWNERS
+similarity index 100%
+rename from .github/CODEOWNERS
+rename to .github.orig/CODEOWNERS
+diff --git a/.github/FUNDING.yml b/.github.orig/FUNDING.yml
+similarity index 100%
+rename from .github/FUNDING.yml
+rename to .github.orig/FUNDING.yml
+diff --git a/.github/ISSUE_TEMPLATE/100-documentation.yml b/.github.orig/ISSUE_TEMPLATE/100-documentation.yml
+similarity index 100%
+rename from .github/ISSUE_TEMPLATE/100-documentation.yml
+rename to .github.orig/ISSUE_TEMPLATE/100-documentation.yml
+diff --git a/.github/ISSUE_TEMPLATE/200-installation.yml b/.github.orig/ISSUE_TEMPLATE/200-installation.yml
+similarity index 100%
+rename from .github/ISSUE_TEMPLATE/200-installation.yml
+rename to .github.orig/ISSUE_TEMPLATE/200-installation.yml
+diff --git a/.github/ISSUE_TEMPLATE/300-usage.yml b/.github.orig/ISSUE_TEMPLATE/300-usage.yml
+similarity index 100%
+rename from .github/ISSUE_TEMPLATE/300-usage.yml
+rename to .github.orig/ISSUE_TEMPLATE/300-usage.yml
+diff --git a/.github/ISSUE_TEMPLATE/400-bug-report.yml b/.github.orig/ISSUE_TEMPLATE/400-bug-report.yml
+similarity index 100%
+rename from .github/ISSUE_TEMPLATE/400-bug-report.yml
+rename to .github.orig/ISSUE_TEMPLATE/400-bug-report.yml
+diff --git a/.github/ISSUE_TEMPLATE/450-ci-failure.yml b/.github.orig/ISSUE_TEMPLATE/450-ci-failure.yml
+similarity index 100%
+rename from .github/ISSUE_TEMPLATE/450-ci-failure.yml
+rename to .github.orig/ISSUE_TEMPLATE/450-ci-failure.yml
+diff --git a/.github/ISSUE_TEMPLATE/500-feature-request.yml b/.github.orig/ISSUE_TEMPLATE/500-feature-request.yml
+similarity index 100%
+rename from .github/ISSUE_TEMPLATE/500-feature-request.yml
+rename to .github.orig/ISSUE_TEMPLATE/500-feature-request.yml
+diff --git a/.github/ISSUE_TEMPLATE/600-new-model.yml b/.github.orig/ISSUE_TEMPLATE/600-new-model.yml
+similarity index 100%
+rename from .github/ISSUE_TEMPLATE/600-new-model.yml
+rename to .github.orig/ISSUE_TEMPLATE/600-new-model.yml
+diff --git a/.github/ISSUE_TEMPLATE/700-performance-discussion.yml b/.github.orig/ISSUE_TEMPLATE/700-performance-discussion.yml
+similarity index 100%
+rename from .github/ISSUE_TEMPLATE/700-performance-discussion.yml
+rename to .github.orig/ISSUE_TEMPLATE/700-performance-discussion.yml
+diff --git a/.github/ISSUE_TEMPLATE/750-RFC.yml b/.github.orig/ISSUE_TEMPLATE/750-RFC.yml
+similarity index 100%
+rename from .github/ISSUE_TEMPLATE/750-RFC.yml
+rename to .github.orig/ISSUE_TEMPLATE/750-RFC.yml
+diff --git a/.github/ISSUE_TEMPLATE/config.yml b/.github.orig/ISSUE_TEMPLATE/config.yml
+similarity index 100%
+rename from .github/ISSUE_TEMPLATE/config.yml
+rename to .github.orig/ISSUE_TEMPLATE/config.yml
+diff --git a/.github/PULL_REQUEST_TEMPLATE.md b/.github.orig/PULL_REQUEST_TEMPLATE.md
+similarity index 100%
+rename from .github/PULL_REQUEST_TEMPLATE.md
+rename to .github.orig/PULL_REQUEST_TEMPLATE.md
+diff --git a/.github/dependabot.yml b/.github.orig/dependabot.yml
+similarity index 100%
+rename from .github/dependabot.yml
+rename to .github.orig/dependabot.yml
+diff --git a/.github/mergify.yml b/.github.orig/mergify.yml
+similarity index 100%
+rename from .github/mergify.yml
+rename to .github.orig/mergify.yml
+diff --git a/.github/scale-config.yml b/.github.orig/scale-config.yml
+similarity index 100%
+rename from .github/scale-config.yml
+rename to .github.orig/scale-config.yml
+diff --git a/.github/scripts/cleanup_pr_body.sh b/.github.orig/scripts/cleanup_pr_body.sh
+similarity index 100%
+rename from .github/scripts/cleanup_pr_body.sh
+rename to .github.orig/scripts/cleanup_pr_body.sh
+diff --git a/.github/workflows/add_label_automerge.yml b/.github.orig/workflows/add_label_automerge.yml
+similarity index 100%
+rename from .github/workflows/add_label_automerge.yml
+rename to .github.orig/workflows/add_label_automerge.yml
+diff --git a/.github/workflows/bc-lint.yml b/.github.orig/workflows/bc-lint.yml
+similarity index 100%
+rename from .github/workflows/bc-lint.yml
+rename to .github.orig/workflows/bc-lint.yml
+diff --git a/.github/workflows/cleanup_pr_body.yml b/.github.orig/workflows/cleanup_pr_body.yml
+similarity index 100%
+rename from .github/workflows/cleanup_pr_body.yml
+rename to .github.orig/workflows/cleanup_pr_body.yml
+diff --git a/.github/workflows/issue_autolabel.yml b/.github.orig/workflows/issue_autolabel.yml
+similarity index 100%
+rename from .github/workflows/issue_autolabel.yml
+rename to .github.orig/workflows/issue_autolabel.yml
+diff --git a/.github/workflows/macos-smoke-test.yml b/.github.orig/workflows/macos-smoke-test.yml
+similarity index 100%
+rename from .github/workflows/macos-smoke-test.yml
+rename to .github.orig/workflows/macos-smoke-test.yml
+diff --git a/.github/workflows/matchers/actionlint.json b/.github.orig/workflows/matchers/actionlint.json
+similarity index 100%
+rename from .github/workflows/matchers/actionlint.json
+rename to .github.orig/workflows/matchers/actionlint.json
+diff --git a/.github/workflows/matchers/markdownlint.json b/.github.orig/workflows/matchers/markdownlint.json
+similarity index 100%
+rename from .github/workflows/matchers/markdownlint.json
+rename to .github.orig/workflows/matchers/markdownlint.json
+diff --git a/.github/workflows/matchers/mypy.json b/.github.orig/workflows/matchers/mypy.json
+similarity index 100%
+rename from .github/workflows/matchers/mypy.json
+rename to .github.orig/workflows/matchers/mypy.json
+diff --git a/.github/workflows/pre-commit.yml b/.github.orig/workflows/pre-commit.yml
+similarity index 100%
+rename from .github/workflows/pre-commit.yml
+rename to .github.orig/workflows/pre-commit.yml
+diff --git a/.github/workflows/reminder_comment.yml b/.github.orig/workflows/reminder_comment.yml
+similarity index 100%
+rename from .github/workflows/reminder_comment.yml
+rename to .github.orig/workflows/reminder_comment.yml
+diff --git a/.github/workflows/scripts/build.sh b/.github.orig/workflows/scripts/build.sh
+similarity index 100%
+rename from .github/workflows/scripts/build.sh
+rename to .github.orig/workflows/scripts/build.sh
+diff --git a/.github/workflows/scripts/create_release.js b/.github.orig/workflows/scripts/create_release.js
+similarity index 100%
+rename from .github/workflows/scripts/create_release.js
+rename to .github.orig/workflows/scripts/create_release.js
+diff --git a/.github/workflows/scripts/cuda-install.sh b/.github.orig/workflows/scripts/cuda-install.sh
+similarity index 100%
+rename from .github/workflows/scripts/cuda-install.sh
+rename to .github.orig/workflows/scripts/cuda-install.sh
+diff --git a/.github/workflows/scripts/env.sh b/.github.orig/workflows/scripts/env.sh
+similarity index 100%
+rename from .github/workflows/scripts/env.sh
+rename to .github.orig/workflows/scripts/env.sh
+diff --git a/.github/workflows/scripts/pytorch-install.sh b/.github.orig/workflows/scripts/pytorch-install.sh
+similarity index 100%
+rename from .github/workflows/scripts/pytorch-install.sh
+rename to .github.orig/workflows/scripts/pytorch-install.sh
+diff --git a/.github/workflows/stale.yml b/.github.orig/workflows/stale.yml
+similarity index 100%
+rename from .github/workflows/stale.yml
+rename to .github.orig/workflows/stale.yml
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index cd52df86e..3c27b2023 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -947,11 +947,11 @@ target_compile_definitions(_C PRIVATE CUTLASS_ENABLE_DIRECT_CUDA_DRIVER_CALL=1)
+ set(VLLM_MOE_EXT_SRC
+   "csrc/moe/torch_bindings.cpp"
+   "csrc/moe/moe_align_sum_kernels.cu"
++  "csrc/moe/moe_wna16.cu"
+   "csrc/moe/topk_softmax_kernels.cu")
+ 
+ if(VLLM_GPU_LANG STREQUAL "CUDA")
+   list(APPEND VLLM_MOE_EXT_SRC
+-    "csrc/moe/moe_wna16.cu"
+     "csrc/moe/grouped_topk_kernels.cu")
+ endif()
+ 
+diff --git a/README b/README
+new file mode 100644
+index 000000000..5c7adf4bc
+--- /dev/null
++++ b/README
+@@ -0,0 +1,81 @@
++vLLM for gfx906
++===================
++
++
++ARICHIVED
++-------------------
++
++Over the past year, almost all open-weight models have grown increasingly large,
++far exceeding my capacity for development and testing. Coupled with the rising
++price of MI50 GPUs, I am reluctant to keep adding more cards. I have now
++archived this repository; everyone is welcome to fork it.
++
++
++ORIGINAL README
++-------------------
++
++This is a modified version of vLLM, works with (and only works with) AMD gfx906
++GPUs such as Radeon VII / Radeon Pro VII / Instinct MI50 / Instinct MI60.
++
++This fork was (and still is) just a passion project shared for fun. I won't be
++putting much effort into it. Use it at your own risk, especially please don't
++use it as a reference for your GPU purchasing decisions.
++
++
++RUN WITH DOCKER
++-------------------
++
++Please install ROCm 6.3 first, only kernel-mode driver is required. Refer to
++the official documentation by AMD.
++
++```
++docker pull nalanzeyu/vllm-gfx906
++docker run -it --rm --shm-size=2g --device=/dev/kfd --device=/dev/dri \
++    --group-add video -p 8000:8000 -v <YOUR_MODEL_PATH>:/model \
++    nalanzeyu/vllm-gfx906 vllm serve /model
++```
++
++
++SUPPORT QUANTIZATIONS
++-------------------
++
++See https://github.com/nlzy/vllm-gfx906/issues/29
++
++GPTQ and AWQ are the first recommended quantization formats.
++
++vLLM's llm-compressor with W4A16 INT format is also recommended. Other formats
++in llm-compressor are not support.
++
++All MoE quantization models are significantly slow, and all unquantized models
++are slightly slow. Not recommended to use.
++
++
++BUILD
++-------------------
++
++Please install ROCm 6.3 first. You need to install both kernel-mode driver and
++ROCm packages. Refer to the official documentation by AMD.
++
++You also need python-venv / python-dev, on Debian / Ubuntu use this command:
++$ sudo apt install python3-venv python3-dev
++
++You also need triton-gfx906 v3.5.0+gfx906 see:
++https://github.com/nlzy/triton-gfx906/tree/v3.5.0+gfx906
++
++```
++cd vllm-gfx906
++
++python3 -m venv vllmenv
++source vllmenv/bin/activate
++
++pip3 install torch==2.9 torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm6.3
++pip3 install -r requirements/rocm-build.txt -r requirements/rocm.txt
++
++pip3 install --no-build-isolation --no-deps -v .
++```
++
++
++CREDITS
++-------------------
++
++https://github.com/Said-Akbar/vllm-rocm
+diff --git a/README.md b/README.md.orig
+similarity index 100%
+rename from README.md
+rename to README.md.orig
+diff --git a/csrc/moe/moe_ops.h b/csrc/moe/moe_ops.h
+index 337dcc50b..ea2dfc912 100644
+--- a/csrc/moe/moe_ops.h
++++ b/csrc/moe/moe_ops.h
+@@ -28,7 +28,7 @@ void moe_lora_align_block_size(
+     torch::Tensor sorted_token_ids, torch::Tensor expert_ids,
+     torch::Tensor num_tokens_post_pad, torch::Tensor adapter_enabled,
+     torch::Tensor lora_ids, std::optional<torch::Tensor> maybe_expert_map);
+-#ifndef USE_ROCM
++
+ torch::Tensor moe_wna16_gemm(torch::Tensor input, torch::Tensor output,
+                              torch::Tensor b_qweight, torch::Tensor b_scales,
+                              std::optional<torch::Tensor> b_qzeros,
+@@ -39,6 +39,7 @@ torch::Tensor moe_wna16_gemm(torch::Tensor input, torch::Tensor output,
+                              int64_t BLOCK_SIZE_M, int64_t BLOCK_SIZE_N,
+                              int64_t BLOCK_SIZE_K, int64_t bit);
+ 
++#ifndef USE_ROCM
+ std::tuple<torch::Tensor, torch::Tensor> grouped_topk(
+     torch::Tensor const& scores, int64_t n_group, int64_t topk_group,
+     int64_t topk, bool renormalize, double routed_scaling_factor,
+diff --git a/csrc/moe/moe_wna16.cu b/csrc/moe/moe_wna16.cu
+index 7b6a111c0..9757f8af3 100644
+--- a/csrc/moe/moe_wna16.cu
++++ b/csrc/moe/moe_wna16.cu
+@@ -5,7 +5,6 @@
+ #include <cuda_runtime.h>
+ 
+ #include <cuda_fp16.h>
+-#include <cuda_bf16.h>
+ #include "moe_wna16_utils.h"
+ 
+ #define DIVIDE(x, size) (((x) + (size) - 1) / (size))
+@@ -25,201 +24,201 @@ __global__ void moe_wna16_gemm_kernel(
+     uint32_t size_n, uint32_t size_k, uint16_t BLOCK_SIZE_M,
+     uint16_t BLOCK_SIZE_N, uint16_t BLOCK_SIZE_K, bool has_zp,
+     bool mul_topk_weight) {
+-#if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ < 800
+-  if constexpr (std::is_same<scalar_t, nv_bfloat16>::value) {
+-    return;
+-  } else {
+-#endif
+-
+-    using Dtype = ScalarType<scalar_t>;
+-    using scalar_t2 = typename ScalarType<scalar_t>::scalar_t2;
+-
+-    if (blockIdx.x * BLOCK_SIZE_M >= num_tokens_post_pad[0]) return;
+-
+-    const int32_t offset_n = blockIdx.y * BLOCK_SIZE_N + threadIdx.x;
+-    const int32_t offset_k = blockIdx.z * BLOCK_SIZE_K;
+-
+-    const int32_t expert_id = expert_ids[blockIdx.x];
+-
+-    int32_t num_valid_tokens = 0;
+-    extern __shared__ uint16_t block_input_tmp[];
+-    scalar_t* block_input = reinterpret_cast<scalar_t*>(block_input_tmp);
+-    scalar_t2* block_input_half2 = reinterpret_cast<scalar_t2*>(block_input);
+-
+-    // load BLOCK_SIZE_M * BLOCK_SIZE_K into shared memory
+-    for (int m = 0; m < BLOCK_SIZE_M; m++) {
+-      const int32_t offset_m = blockIdx.x * BLOCK_SIZE_M + m;
+-      const int32_t token_index = sorted_token_ids[offset_m];
+-      if (token_index / top_k >= size_m) break;
+-
+-      num_valid_tokens = m + 1;
+-
+-      if (expert_id != -1) {
+-        int k_per_thread = DIVIDE(BLOCK_SIZE_K, BLOCK_SIZE_N);
+-        for (int i = 0; i < k_per_thread; i++) {
+-          int k = BLOCK_SIZE_N * i + threadIdx.x;
+-          if (k >= BLOCK_SIZE_K) break;
+-          if (offset_k + k >= size_k) break;
+-
+-          // load input to shared memory
+-          // use a special layout to fit the layout of dequanted-weight
+-          int origin_k;
+-          if constexpr (bit == 4) {
+-            // [0, 4, 1, 5, 2, 6, 3, 7]
+-            int8_t order = (threadIdx.x % 2) * 4 + ((threadIdx.x % 8) / 2);
+-            origin_k = BLOCK_SIZE_N * i + threadIdx.x / 8 * 8 + order;
+-          } else {
+-            // [0, 2, 1, 3]
+-            int8_t order = (threadIdx.x % 2) * 2 + ((threadIdx.x % 4) / 2);
+-            origin_k = BLOCK_SIZE_N * i + threadIdx.x / 4 * 4 + order;
+-          }
+-
+-          origin_k += token_index / top_k * size_k + blockIdx.z * BLOCK_SIZE_K;
+-          block_input[m * BLOCK_SIZE_K + k] = input[origin_k];
++
++  using Dtype = ScalarType<scalar_t>;
++  using scalar_t2 = typename ScalarType<scalar_t>::scalar_t2;
++
++  if (blockIdx.x * BLOCK_SIZE_M >= num_tokens_post_pad[0]) return;
++
++  const int32_t offset_n = blockIdx.y * BLOCK_SIZE_N + threadIdx.x;
++  const int32_t offset_k = blockIdx.z * BLOCK_SIZE_K;
++
++  const int32_t expert_id = expert_ids[blockIdx.x];
++
++  int32_t num_valid_tokens = 0;
++  extern __shared__ uint16_t block_input_tmp[];
++  scalar_t* block_input = reinterpret_cast<scalar_t*>(block_input_tmp);
++  scalar_t2* block_input_half2 = reinterpret_cast<scalar_t2*>(block_input);
++
++  // load BLOCK_SIZE_M * BLOCK_SIZE_K into shared memory
++  for (int m = 0; m < BLOCK_SIZE_M; m++) {
++    const int32_t offset_m = blockIdx.x * BLOCK_SIZE_M + m;
++    const int32_t token_index = sorted_token_ids[offset_m];
++    if (token_index / top_k >= size_m) break;
++
++    num_valid_tokens = m + 1;
++
++    if (expert_id != -1) {
++      int k_per_thread = DIVIDE(BLOCK_SIZE_K, BLOCK_SIZE_N);
++      for (int i = 0; i < k_per_thread; i++) {
++        int k = BLOCK_SIZE_N * i + threadIdx.x;
++        if (k >= BLOCK_SIZE_K) break;
++        if (offset_k + k >= size_k) break;
++
++        // load input to shared memory
++        // use a special layout to fit the layout of dequanted-weight
++        int origin_k;
++        if constexpr (bit == 4) {
++          // [0, 4, 1, 5, 2, 6, 3, 7]
++          int8_t order = (threadIdx.x % 2) * 4 + ((threadIdx.x % 8) / 2);
++          origin_k = BLOCK_SIZE_N * i + threadIdx.x / 8 * 8 + order;
++        } else {
++          // [0, 2, 1, 3]
++          int8_t order = (threadIdx.x % 2) * 2 + ((threadIdx.x % 4) / 2);
++          origin_k = BLOCK_SIZE_N * i + threadIdx.x / 4 * 4 + order;
+         }
++
++        origin_k += token_index / top_k * size_k + blockIdx.z * BLOCK_SIZE_K;
++        block_input[m * BLOCK_SIZE_K + k] = input[origin_k];
+       }
+     }
++  }
++
++  if (expert_id == -1) return;
++  __syncthreads();
++  if (threadIdx.x >= BLOCK_SIZE_N || offset_n >= size_n) return;
++
++  float res[64];  // assume BLOCK_SIZE_M <= 64
++  scalar_t2 res2;
++  scalar_t2 scale_f2;
++  scalar_t2 qzero_f2;
++
++  // note that (size_n * size_k * expert_id) may greater than 2 ** 31
++  constexpr int8_t pack_factor = 32 / bit;
++  const uint64_t expert_offset = ((uint64_t)size_n) * size_k * expert_id;
++  const uint32_t* expert_qweight = qweight + expert_offset / pack_factor;
++  const scalar_t* expert_scales = scales + expert_offset / group_size;
++  const uint32_t* expert_qzeros =
++      qzeros + expert_offset / group_size / pack_factor;
++
++  // load 4*int32 one time: 4 int32 = 128 bit = 1 float4
++  // weight would be loaded in loop
++  uint32_t expert_qweight_tmp[4];
++  float4* expert_qweight_tmp_float4 =
++      reinterpret_cast<float4*>(expert_qweight_tmp);
++
++  // load all required scales one time
++  scalar_t expert_scales_groups[GROUPS];
++  int scales_offset_tmp =
++      (offset_n * size_k + offset_k) / group_size / GROUPS;
++  if constexpr (GROUPS == 1) {
++    *expert_scales_groups = expert_scales[scales_offset_tmp];
++  } else if constexpr (GROUPS == 2) {
++    float* expert_scales_groups_tmp =
++        reinterpret_cast<float*>(expert_scales_groups);
++    *expert_scales_groups_tmp =
++        reinterpret_cast<const float*>(expert_scales)[scales_offset_tmp];
++  } else if constexpr (GROUPS == 4) {
++    float2* expert_scales_groups_tmp =
++        reinterpret_cast<float2*>(expert_scales_groups);
++    *expert_scales_groups_tmp =
++        reinterpret_cast<const float2*>(expert_scales)[scales_offset_tmp];
++  } else if constexpr (GROUPS == 8) {
++    float4* expert_scales_groups_tmp =
++        reinterpret_cast<float4*>(expert_scales_groups);
++    *expert_scales_groups_tmp =
++        reinterpret_cast<const float4*>(expert_scales)[scales_offset_tmp];
++  } else if constexpr (GROUPS == 16) {
++    float4* expert_scales_groups_f4 = reinterpret_cast<float4*>(expert_scales_groups);
++    const float4* expert_scales_f4 = reinterpret_cast<const float4*>(expert_scales);
++    expert_scales_groups_f4[0] = expert_scales_f4[scales_offset_tmp * 2];
++    expert_scales_groups_f4[1] = expert_scales_f4[scales_offset_tmp * 2 + 1];
++  }
+ 
+-    if (expert_id == -1) return;
+-    __syncthreads();
+-    if (threadIdx.x >= BLOCK_SIZE_N || offset_n >= size_n) return;
+-
+-    float res[64];  // assume BLOCK_SIZE_M <= 64
+-    scalar_t2 res2;
+-    scalar_t2 scale_f2;
+-    scalar_t2 qzero_f2;
+-
+-    // note that (size_n * size_k * expert_id) may greater than 2 ** 31
+-    constexpr int8_t pack_factor = 32 / bit;
+-    const uint64_t expert_offset = ((uint64_t)size_n) * size_k * expert_id;
+-    const uint32_t* expert_qweight = qweight + expert_offset / pack_factor;
+-    const scalar_t* expert_scales = scales + expert_offset / group_size;
+-    const uint32_t* expert_qzeros =
+-        qzeros + expert_offset / group_size / pack_factor;
+-
+-    // load 4*int32 one time: 4 int32 = 128 bit = 1 float4
+-    // weight would be loaded in loop
+-    uint32_t expert_qweight_tmp[4];
+-    float4* expert_qweight_tmp_float4 =
+-        reinterpret_cast<float4*>(expert_qweight_tmp);
+-
+-    // load all required scales one time
+-    scalar_t expert_scales_groups[GROUPS];
+-    int scales_offset_tmp =
+-        (offset_n * size_k + offset_k) / group_size / GROUPS;
++  // load all required qzeros one time
++  uint8_t expert_qzeros_groups[GROUPS];
++  if (!has_zp) {
++    if constexpr (bit == 4) {
++      qzero_f2 = Dtype::num2num2(Dtype::int2num(8));
++    } else {
++      qzero_f2 = Dtype::num2num2(Dtype::int2num(128));
++    }
++  } else {
++    int qzeros_offset_tmp =
++        (offset_n / (8 / bit)) * (size_k / group_size / GROUPS) +
++        offset_k / group_size / GROUPS;
+     if constexpr (GROUPS == 1) {
+-      *expert_scales_groups = expert_scales[scales_offset_tmp];
++      uint8_t* expert_qzeros_groups_tmp =
++          reinterpret_cast<uint8_t*>(expert_qzeros_groups);
++      *expert_qzeros_groups_tmp =
++          reinterpret_cast<const uint8_t*>(expert_qzeros)[qzeros_offset_tmp];
+     } else if constexpr (GROUPS == 2) {
+-      float* expert_scales_groups_tmp =
+-          reinterpret_cast<float*>(expert_scales_groups);
+-      *expert_scales_groups_tmp =
+-          reinterpret_cast<const float*>(expert_scales)[scales_offset_tmp];
++      uint16_t* expert_qzeros_groups_tmp =
++          reinterpret_cast<uint16_t*>(expert_qzeros_groups);
++      *expert_qzeros_groups_tmp =
++          reinterpret_cast<const uint16_t*>(expert_qzeros)[qzeros_offset_tmp];
+     } else if constexpr (GROUPS == 4) {
+-      float2* expert_scales_groups_tmp =
+-          reinterpret_cast<float2*>(expert_scales_groups);
+-      *expert_scales_groups_tmp =
+-          reinterpret_cast<const float2*>(expert_scales)[scales_offset_tmp];
++      uint32_t* expert_qzeros_groups_tmp =
++          reinterpret_cast<uint32_t*>(expert_qzeros_groups);
++      *expert_qzeros_groups_tmp =
++          reinterpret_cast<const uint32_t*>(expert_qzeros)[qzeros_offset_tmp];
+     } else if constexpr (GROUPS == 8) {
+-      float4* expert_scales_groups_tmp =
+-          reinterpret_cast<float4*>(expert_scales_groups);
+-      *expert_scales_groups_tmp =
+-          reinterpret_cast<const float4*>(expert_scales)[scales_offset_tmp];
++      uint64_t* expert_qzeros_groups_tmp =
++          reinterpret_cast<uint64_t*>(expert_qzeros_groups);
++      *expert_qzeros_groups_tmp =
++          reinterpret_cast<const uint64_t*>(expert_qzeros)[qzeros_offset_tmp];
++    } else if constexpr (GROUPS == 16) {
++      uint4* expert_qzeros_groups_u4 = reinterpret_cast<uint4*>(expert_qzeros_groups);
++      const uint4* expert_qzeros_u4 = reinterpret_cast<const uint4*>(expert_qzeros);
++      *expert_qzeros_groups_u4 = expert_qzeros_u4[qzeros_offset_tmp];
+     }
++  }
+ 
+-    // load all required qzeros one time
+-    uint8_t expert_qzeros_groups[GROUPS];
+-    if (!has_zp) {
+-      if constexpr (bit == 4) {
+-        qzero_f2 = Dtype::num2num2(Dtype::int2num(8));
+-      } else {
+-        qzero_f2 = Dtype::num2num2(Dtype::int2num(128));
+-      }
+-    } else {
+-      int qzeros_offset_tmp =
+-          (offset_n / (8 / bit)) * (size_k / group_size / GROUPS) +
+-          offset_k / group_size / GROUPS;
+-      if constexpr (GROUPS == 1) {
+-        uint8_t* expert_qzeros_groups_tmp =
+-            reinterpret_cast<uint8_t*>(expert_qzeros_groups);
+-        *expert_qzeros_groups_tmp =
+-            reinterpret_cast<const uint8_t*>(expert_qzeros)[qzeros_offset_tmp];
+-      } else if constexpr (GROUPS == 2) {
+-        uint16_t* expert_qzeros_groups_tmp =
+-            reinterpret_cast<uint16_t*>(expert_qzeros_groups);
+-        *expert_qzeros_groups_tmp =
+-            reinterpret_cast<const uint16_t*>(expert_qzeros)[qzeros_offset_tmp];
+-      } else if constexpr (GROUPS == 4) {
+-        uint32_t* expert_qzeros_groups_tmp =
+-            reinterpret_cast<uint32_t*>(expert_qzeros_groups);
+-        *expert_qzeros_groups_tmp =
+-            reinterpret_cast<const uint32_t*>(expert_qzeros)[qzeros_offset_tmp];
+-      } else if constexpr (GROUPS == 8) {
+-        uint64_t* expert_qzeros_groups_tmp =
+-            reinterpret_cast<uint64_t*>(expert_qzeros_groups);
+-        *expert_qzeros_groups_tmp =
+-            reinterpret_cast<const uint64_t*>(expert_qzeros)[qzeros_offset_tmp];
+-      }
+-    }
++  for (int tmp_k = 0; tmp_k < BLOCK_SIZE_K / pack_factor; tmp_k++) {
++    int k = offset_k + tmp_k * pack_factor;
++    if (k >= size_k) break;
++    const int32_t weight_offset = offset_n * size_k + k;
+ 
+-    for (int tmp_k = 0; tmp_k < BLOCK_SIZE_K / pack_factor; tmp_k++) {
+-      int k = offset_k + tmp_k * pack_factor;
+-      if (k >= size_k) break;
+-      const int32_t weight_offset = offset_n * size_k + k;
++    if (tmp_k % 4 == 0) {
++      *expert_qweight_tmp_float4 = reinterpret_cast<const float4*>(
++          expert_qweight)[weight_offset / pack_factor / 4];
++    }
+ 
+-      if (tmp_k % 4 == 0) {
+-        *expert_qweight_tmp_float4 = reinterpret_cast<const float4*>(
+-            expert_qweight)[weight_offset / pack_factor / 4];
+-      }
++    if (tmp_k % (group_size / pack_factor) == 0) {
++      scalar_t scale_f =
++          expert_scales_groups[tmp_k / (group_size / pack_factor)];
++      scale_f2 = Dtype::num2num2(scale_f);
+ 
+-      if (tmp_k % (group_size / pack_factor) == 0) {
+-        scalar_t scale_f =
+-            expert_scales_groups[tmp_k / (group_size / pack_factor)];
+-        scale_f2 = Dtype::num2num2(scale_f);
+-
+-        if (has_zp) {
+-          uint8_t qzero =
+-              expert_qzeros_groups[tmp_k / (group_size / pack_factor)];
+-          if constexpr (bit == 4) {
+-            qzero = (qzero >> ((threadIdx.x % 2) * 4)) & 0xF;
+-          }
+-          qzero_f2 = Dtype::num2num2(Dtype::int2num(qzero));
++      if (has_zp) {
++        uint8_t qzero =
++            expert_qzeros_groups[tmp_k / (group_size / pack_factor)];
++        if constexpr (bit == 4) {
++          qzero = (qzero >> ((threadIdx.x % 2) * 4)) & 0xF;
+         }
++        qzero_f2 = Dtype::num2num2(Dtype::int2num(qzero));
+       }
++    }
+ 
+-      scalar_t2 weight_half2[16 / bit];
+-      dequant<scalar_t2, bit>(expert_qweight_tmp[tmp_k % 4], weight_half2);
++    scalar_t2 weight_half2[16 / bit];
++    dequant<scalar_t2, bit>(expert_qweight_tmp[tmp_k % 4], weight_half2);
+ 
+-      for (int m = 0; m < num_valid_tokens; m++) {
+-        res2 = {};
++    for (int m = 0; m < num_valid_tokens; m++) {
++      res2 = scalar_t2{};
+ 
+ #pragma unroll
+-        for (int i = 0; i < 16 / bit; i++) {
+-          int32_t offset_input = m * BLOCK_SIZE_K / 2 + tmp_k * (16 / bit) + i;
+-          res2 = __hfma2(__hmul2(__hsub2(weight_half2[i], qzero_f2), scale_f2),
+-                         block_input_half2[offset_input], res2);
+-        }
+-
+-        if (tmp_k == 0) {
+-          res[m] = Dtype::num2float(res2.x) + Dtype::num2float(res2.y);
+-        } else {
+-          res[m] += Dtype::num2float(res2.x) + Dtype::num2float(res2.y);
+-        }
++      for (int i = 0; i < 16 / bit; i++) {
++        int32_t offset_input = m * BLOCK_SIZE_K / 2 + tmp_k * (16 / bit) + i;
++        res2 = __hfma2(__hmul2(__hsub2(weight_half2[i], qzero_f2), scale_f2),
++                        block_input_half2[offset_input], res2);
+       }
+-    }
+ 
+-    for (int m = 0; m < num_valid_tokens; ++m) {
+-      const int32_t token_index =
+-          sorted_token_ids[blockIdx.x * BLOCK_SIZE_M + m];
+-      if (mul_topk_weight) {
+-        res[m] *= topk_weights[token_index];
++      if (tmp_k == 0) {
++        res[m] = Dtype::num2float(res2.x) + Dtype::num2float(res2.y);
++      } else {
++        res[m] += Dtype::num2float(res2.x) + Dtype::num2float(res2.y);
+       }
+-      atomicAdd(&output[token_index * size_n + offset_n],
+-                Dtype::float2num(res[m]));
+     }
++  }
+ 
+-#if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ < 800
++  for (int m = 0; m < num_valid_tokens; ++m) {
++    const int32_t token_index =
++        sorted_token_ids[blockIdx.x * BLOCK_SIZE_M + m];
++    if (mul_topk_weight) {
++      res[m] *= topk_weights[token_index];
++    }
++    atomicAdd_half(&output[token_index * size_n + offset_n],
++              Dtype::float2num(res[m]));
+   }
+-#endif
+ }
+ 
+ template <typename scalar_t>
+@@ -249,17 +248,21 @@ void run_moe_wna16_gemm(const scalar_t* input, scalar_t* output,
+       kernel = moe_wna16_gemm_kernel<scalar_t, 4, 4>;
+     } else if (BLOCK_SIZE_K / group_size == 8) {
+       kernel = moe_wna16_gemm_kernel<scalar_t, 4, 8>;
++    } else if (BLOCK_SIZE_K / group_size == 16) {
++      kernel = moe_wna16_gemm_kernel<scalar_t, 4, 16>;
+     }
+   } else {
+-    if (BLOCK_SIZE_K / group_size == 1) {
+-      kernel = moe_wna16_gemm_kernel<scalar_t, 8, 1>;
+-    } else if (BLOCK_SIZE_K / group_size == 2) {
+-      kernel = moe_wna16_gemm_kernel<scalar_t, 8, 2>;
+-    } else if (BLOCK_SIZE_K / group_size == 4) {
+-      kernel = moe_wna16_gemm_kernel<scalar_t, 8, 4>;
+-    } else if (BLOCK_SIZE_K / group_size == 8) {
+-      kernel = moe_wna16_gemm_kernel<scalar_t, 8, 8>;
+-    }
++    // TODO support 8
++    // if (BLOCK_SIZE_K / group_size == 1) {
++    //   kernel = moe_wna16_gemm_kernel<scalar_t, 8, 1>;
++    // } else if (BLOCK_SIZE_K / group_size == 2) {
++    //   kernel = moe_wna16_gemm_kernel<scalar_t, 8, 2>;
++    // } else if (BLOCK_SIZE_K / group_size == 4) {
++    //   kernel = moe_wna16_gemm_kernel<scalar_t, 8, 4>;
++    // } else if (BLOCK_SIZE_K / group_size == 8) {
++    //   kernel = moe_wna16_gemm_kernel<scalar_t, 8, 8>;
++    // }
++    TORCH_CHECK(false, "???");
+   }
+ 
+   const int shared_mem_size = BLOCK_SIZE_M * BLOCK_SIZE_K * 2;
+@@ -303,15 +306,18 @@ torch::Tensor moe_wna16_gemm(torch::Tensor input, torch::Tensor output,
+     topk_weights_ptr = (const float*)topk_weights.value().data_ptr<float>();
+ 
+   int groups_per_block_row = BLOCK_SIZE_K / group_size;
+-  TORCH_CHECK(bit == 4 || bit == 8, "bit must be 4 or 8");
++  // TODO: support 8
++  // TORCH_CHECK(bit == 4 || bit == 8, "bit must be 4 or 8");
++  TORCH_CHECK(bit == 4, "bit must be 4");
+   TORCH_CHECK(size_k % BLOCK_SIZE_K == 0,
+               "size_k must divisible by BLOCK_SIZE_K");
+   TORCH_CHECK(BLOCK_SIZE_K % group_size == 0,
+               "BLOCK_SIZE_K must divisible by group_size");
+   TORCH_CHECK(BLOCK_SIZE_M <= 64, "BLOCK_SIZE_M must less or equal to 64");
+   TORCH_CHECK(groups_per_block_row == 1 || groups_per_block_row == 2 ||
+-                  groups_per_block_row == 4 || groups_per_block_row == 8,
+-              "BLOCK_SIZE_K // group_size must be one of [1, 2, 4, 8]");
++                  groups_per_block_row == 4 || groups_per_block_row == 8 ||
++                  groups_per_block_row == 16,
++              "BLOCK_SIZE_K // group_size must be one of [1, 2, 4, 8, 16]");
+ 
+   if (input.scalar_type() == at::ScalarType::Half) {
+     run_moe_wna16_gemm<half>(
+@@ -324,19 +330,8 @@ torch::Tensor moe_wna16_gemm(torch::Tensor input, torch::Tensor output,
+         num_experts, group_size, num_token_blocks, top_k, size_m, size_n,
+         size_k, BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, bit,
+         b_qzeros.has_value(), topk_weights.has_value());
+-  } else if (input.scalar_type() == at::ScalarType::BFloat16) {
+-    run_moe_wna16_gemm<nv_bfloat16>(
+-        (const nv_bfloat16*)input.data_ptr<at::BFloat16>(),
+-        (nv_bfloat16*)output.data_ptr<at::BFloat16>(),
+-        (const uint32_t*)b_qweight.data_ptr<uint8_t>(),
+-        (const nv_bfloat16*)b_scales.data_ptr<at::BFloat16>(), b_qzeros_ptr,
+-        topk_weights_ptr, sorted_token_ids.data_ptr<int32_t>(),
+-        expert_ids.data_ptr<int32_t>(), num_tokens_post_pad.data_ptr<int32_t>(),
+-        num_experts, group_size, num_token_blocks, top_k, size_m, size_n,
+-        size_k, BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, bit,
+-        b_qzeros.has_value(), topk_weights.has_value());
+   } else {
+-    TORCH_CHECK(false, "moe_wna16_gemm only supports bfloat16 and float16");
++    TORCH_CHECK(false, "moe_wna16_gemm only supports float16");
+   }
+   return output;
+ }
+diff --git a/csrc/moe/moe_wna16_utils.h b/csrc/moe/moe_wna16_utils.h
+index 8ef03f0e6..3ccbc9bdd 100644
+--- a/csrc/moe/moe_wna16_utils.h
++++ b/csrc/moe/moe_wna16_utils.h
+@@ -1,6 +1,5 @@
+ 
+ #include <cuda_fp16.h>
+-#include <cuda_bf16.h>
+ 
+ template <typename scalar_t>
+ class ScalarType {};
+@@ -40,60 +39,47 @@ class ScalarType<half> {
+   }
+ };
+ 
+-template <>
+-class ScalarType<nv_bfloat16> {
+- public:
+-  using scalar_t = nv_bfloat16;
+-  using scalar_t2 = nv_bfloat162;
+-
+-#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
+-  static __device__ float inline num2float(const nv_bfloat16 x) {
+-    return __bfloat162float(x);
+-  }
+-
+-  static __device__ nv_bfloat162 inline num2num2(const nv_bfloat16 x) {
+-    return __bfloat162bfloat162(x);
+-  }
+-
+-  static __device__ nv_bfloat162 inline nums2num2(const nv_bfloat16 x1,
+-                                                  const nv_bfloat16 x2) {
+-    return __halves2bfloat162(x1, x2);
+-  }
+-
+-  static __host__ __device__ nv_bfloat16 inline float2num(const float x) {
+-    return __float2bfloat16(x);
+-  }
+-
+-  static __host__ __device__ nv_bfloat16 inline int2num(const float x) {
+-    return __int2bfloat16_rn(x);
+-  }
+-
+-  static __host__ __device__ float2 inline num22float2(const nv_bfloat162 x) {
+-    return __bfloat1622float2(x);
+-  }
+-
+-  static __host__ __device__ nv_bfloat162 inline float22num2(const float2 x) {
+-    return __float22bfloat162_rn(x);
+-  }
+-#endif
+-};
+-
+-template <int lut>
+-__device__ inline int lop3(int a, int b, int c) {
+-  int res;
+-  asm volatile("lop3.b32 %0, %1, %2, %3, %4;\n"
+-               : "=r"(res)
+-               : "r"(a), "r"(b), "r"(c), "n"(lut));
+-  return res;
++// TODO: support 8
++// template <int start_byte, int mask>
++// __device__ inline uint32_t prmt(uint32_t a) {
++//   uint32_t res;
++//   asm volatile("prmt.b32 %0, %1, %2, %3;\n"
++//                : "=r"(res)
++//                : "r"(a), "n"(start_byte), "n"(mask));
++//   return res;
++// }
++
++__device__ __forceinline__ void atomicAdd_half(half* address, half val) {
++  unsigned int* address_as_ui =
++      (unsigned int*)((char*)address - ((size_t)address & 2));
++  unsigned int old = *address_as_ui;
++  unsigned int assumed;
++
++  do {
++    assumed = old;
++    __half_raw hsum;
++    hsum.x = (size_t)address & 2 ? (old >> 16) : (old & 0xffff);
++    half tmpres = __hadd(hsum, val);
++    hsum = __half_raw(tmpres);
++    old = (size_t)address & 2 ? (old & 0xffff) | (hsum.x << 16)
++                              : (old & 0xffff0000) | hsum.x;
++    old = atomicCAS(address_as_ui, assumed, old);
++  } while (assumed != old);
+ }
+ 
+-template <int start_byte, int mask>
+-__device__ inline uint32_t prmt(uint32_t a) {
+-  uint32_t res;
+-  asm volatile("prmt.b32 %0, %1, %2, %3;\n"
+-               : "=r"(res)
+-               : "r"(a), "n"(start_byte), "n"(mask));
+-  return res;
++__device__ __forceinline__ uint32_t bfi(const uint32_t S0, const uint32_t S1,
++                                        const uint32_t S2) {
++#if defined(USE_ROCM)
++  uint32_t result;
++  __asm__ (
++    "  v_bfi_b32  %0, %1, %2, %3  \n"
++    : "=v" (result)
++    : "v"(S0), "v"(S1), "v"(S2)
++  );
++  return result;
++#else
++  return (S0 & S1) | (~S0 & S2);
++#endif
+ }
+ 
+ template <typename scalar_t2, int bit>
+@@ -108,11 +94,11 @@ __device__ inline void dequant<half2, 4>(int q, half2* res) {
+   const int MUL = 0x2c002c00;
+   const int ADD = 0xd400d400;
+ 
+-  int lo0 = lop3<(0xf0 & 0xcc) | 0xaa>(q, LO, EX);
+-  int hi0 = lop3<(0xf0 & 0xcc) | 0xaa>(q, HI, EX);
++  int lo0 = bfi(LO, q, EX);
++  int hi0 = bfi(HI, q, EX);
+   q >>= 8;
+-  int lo1 = lop3<(0xf0 & 0xcc) | 0xaa>(q, LO, EX);
+-  int hi1 = lop3<(0xf0 & 0xcc) | 0xaa>(q, HI, EX);
++  int lo1 = bfi(LO, q, EX);
++  int hi1 = bfi(HI, q, EX);
+ 
+   res[0] = __hsub2(*reinterpret_cast<half2*>(&lo0),
+                    *reinterpret_cast<const half2*>(&SUB));
+@@ -126,75 +112,20 @@ __device__ inline void dequant<half2, 4>(int q, half2* res) {
+                    *reinterpret_cast<const half2*>(&ADD));
+ }
+ 
+-template <>
+-__device__ inline void dequant<half2, 8>(int q, half2* res) {
+-  static constexpr uint32_t mask_for_elt_01 = 0x5250;
+-  static constexpr uint32_t mask_for_elt_23 = 0x5351;
+-  static constexpr uint32_t start_byte_for_fp16 = 0x64646464;
+-
+-  uint32_t lo = prmt<start_byte_for_fp16, mask_for_elt_01>(q);
+-  uint32_t hi = prmt<start_byte_for_fp16, mask_for_elt_23>(q);
++// TODO: support 8
++// template <>
++// __device__ inline void dequant<half2, 8>(int q, half2* res) {
++//   static constexpr uint32_t mask_for_elt_01 = 0x5250;
++//   static constexpr uint32_t mask_for_elt_23 = 0x5351;
++//   static constexpr uint32_t start_byte_for_fp16 = 0x64646464;
+ 
+-  static constexpr uint32_t I8s_TO_F16s_MAGIC_NUM = 0x64006400;
++//   uint32_t lo = prmt<start_byte_for_fp16, mask_for_elt_01>(q);
++//   uint32_t hi = prmt<start_byte_for_fp16, mask_for_elt_23>(q);
+ 
+-  res[0] = __hsub2(*reinterpret_cast<half2*>(&lo),
+-                   *reinterpret_cast<const half2*>(&I8s_TO_F16s_MAGIC_NUM));
+-  res[1] = __hsub2(*reinterpret_cast<half2*>(&hi),
+-                   *reinterpret_cast<const half2*>(&I8s_TO_F16s_MAGIC_NUM));
+-}
+-
+-#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
+-template <>
+-__device__ inline void dequant<nv_bfloat162, 4>(int q, nv_bfloat162* res) {
+-  static constexpr uint32_t MASK = 0x000f000f;
+-  static constexpr uint32_t EX = 0x43004300;
+-
+-  int lo0 = lop3<(0xf0 & 0xcc) | 0xaa>(q, MASK, EX);
+-  q >>= 4;
+-  int hi0 = lop3<(0xf0 & 0xcc) | 0xaa>(q, MASK, EX);
+-  q >>= 4;
+-  int lo1 = lop3<(0xf0 & 0xcc) | 0xaa>(q, MASK, EX);
+-  q >>= 4;
+-  int hi1 = lop3<(0xf0 & 0xcc) | 0xaa>(q, MASK, EX);
+-
+-  static constexpr uint32_t MUL = 0x3F803F80;
+-  static constexpr uint32_t ADD = 0xC300C300;
+-
+-  res[0] = __hfma2(*reinterpret_cast<nv_bfloat162*>(&lo0),
+-                   *reinterpret_cast<const nv_bfloat162*>(&MUL),
+-                   *reinterpret_cast<const nv_bfloat162*>(&ADD));
+-  res[1] = __hfma2(*reinterpret_cast<nv_bfloat162*>(&hi0),
+-                   *reinterpret_cast<const nv_bfloat162*>(&MUL),
+-                   *reinterpret_cast<const nv_bfloat162*>(&ADD));
+-  res[2] = __hfma2(*reinterpret_cast<nv_bfloat162*>(&lo1),
+-                   *reinterpret_cast<const nv_bfloat162*>(&MUL),
+-                   *reinterpret_cast<const nv_bfloat162*>(&ADD));
+-  res[3] = __hfma2(*reinterpret_cast<nv_bfloat162*>(&hi1),
+-                   *reinterpret_cast<const nv_bfloat162*>(&MUL),
+-                   *reinterpret_cast<const nv_bfloat162*>(&ADD));
+-}
++//   static constexpr uint32_t I8s_TO_F16s_MAGIC_NUM = 0x64006400;
+ 
+-template <>
+-__device__ inline void dequant<nv_bfloat162, 8>(int q, nv_bfloat162* res) {
+-  float fp32_intermediates[4];
+-  uint32_t* fp32_intermediates_casted =
+-      reinterpret_cast<uint32_t*>(fp32_intermediates);
+-
+-  static constexpr uint32_t fp32_base = 0x4B000000;
+-  fp32_intermediates_casted[0] = __byte_perm(q, fp32_base, 0x7650);
+-  fp32_intermediates_casted[1] = __byte_perm(q, fp32_base, 0x7652);
+-  fp32_intermediates_casted[2] = __byte_perm(q, fp32_base, 0x7651);
+-  fp32_intermediates_casted[3] = __byte_perm(q, fp32_base, 0x7653);
+-
+-  fp32_intermediates[0] -= 8388608.f;
+-  fp32_intermediates[1] -= 8388608.f;
+-  fp32_intermediates[2] -= 8388608.f;
+-  fp32_intermediates[3] -= 8388608.f;
+-
+-  uint32_t* bf16_result_ptr = reinterpret_cast<uint32_t*>(res);
+-  bf16_result_ptr[0] = __byte_perm(fp32_intermediates_casted[0],
+-                                   fp32_intermediates_casted[1], 0x7632);
+-  bf16_result_ptr[1] = __byte_perm(fp32_intermediates_casted[2],
+-                                   fp32_intermediates_casted[3], 0x7632);
+-}
+-#endif
++//   res[0] = __hsub2(*reinterpret_cast<half2*>(&lo),
++//                    *reinterpret_cast<const half2*>(&I8s_TO_F16s_MAGIC_NUM));
++//   res[1] = __hsub2(*reinterpret_cast<half2*>(&hi),
++//                    *reinterpret_cast<const half2*>(&I8s_TO_F16s_MAGIC_NUM));
++// }
+diff --git a/csrc/moe/torch_bindings.cpp b/csrc/moe/torch_bindings.cpp
+index 779ad70ad..645692fff 100644
+--- a/csrc/moe/torch_bindings.cpp
++++ b/csrc/moe/torch_bindings.cpp
+@@ -51,7 +51,6 @@ TORCH_LIBRARY_EXPAND(TORCH_EXTENSION_NAME, m) {
+       "                     Tensor? maybe_expert_map) -> () ");
+   m.impl("moe_lora_align_block_size", torch::kCUDA, &moe_lora_align_block_size);
+ 
+-#ifndef USE_ROCM
+   m.def(
+       "moe_wna16_gemm(Tensor input, Tensor! output, Tensor b_qweight, "
+       "Tensor b_scales, Tensor? b_qzeros, "
+@@ -59,9 +58,10 @@ TORCH_LIBRARY_EXPAND(TORCH_EXTENSION_NAME, m) {
+       "Tensor expert_ids, Tensor num_tokens_post_pad, "
+       "int top_k, int BLOCK_SIZE_M, int BLOCK_SIZE_N, int BLOCK_SIZE_K, "
+       "int bit) -> Tensor");
+-
+   m.impl("moe_wna16_gemm", torch::kCUDA, &moe_wna16_gemm);
+ 
++#ifndef USE_ROCM
++
+   m.def(
+       "moe_wna16_marlin_gemm(Tensor! a, Tensor? c_or_none,"
+       "Tensor! b_q_weight, Tensor? b_bias_or_none,"
+diff --git a/csrc/ops.h b/csrc/ops.h
+index 37e3aaf74..bad602aea 100644
+--- a/csrc/ops.h
++++ b/csrc/ops.h
+@@ -335,6 +335,8 @@ torch::Tensor gptq_gemm(torch::Tensor a, torch::Tensor b_q_weight,
+ 
+ void gptq_shuffle(torch::Tensor q_weight, torch::Tensor q_perm, int64_t bit);
+ 
++void gptq_shuffle_awq_qweight(torch::Tensor q_weight, int64_t bit);
++
+ void static_scaled_fp8_quant(torch::Tensor& out, torch::Tensor const& input,
+                              torch::Tensor const& scale);
+ 
+diff --git a/csrc/quantization/gguf/mmvq.cuh b/csrc/quantization/gguf/mmvq.cuh
+index e27bec7af..2e72dd73f 100644
+--- a/csrc/quantization/gguf/mmvq.cuh
++++ b/csrc/quantization/gguf/mmvq.cuh
+@@ -1,3 +1,5 @@
++#define BLOCK_SIZE 128
++
+ // copied and adapted from https://github.com/ggerganov/llama.cpp/blob/b2899/ggml-cuda/mmvq.cu
+ template <typename scalar_t, int qk, int qi, typename block_q_t, int vdr, vec_dot_q_cuda_t vec_dot_q_cuda>
+ static __global__ void mul_mat_vec_q(const void * __restrict__ vx, const void * __restrict__ vy, scalar_t * __restrict__ dst, const int ncols, const int nrows, const int nvecs) {
+@@ -9,10 +11,9 @@ static __global__ void mul_mat_vec_q(const void * __restrict__ vx, const void *
+     }
+ 
+     const int blocks_per_row = ncols / qk;
+-    const int blocks_per_warp = vdr * WARP_SIZE / qi;
++    const int blocks_per_warp = vdr * BLOCK_SIZE / qi;
+     const int nrows_y = (ncols + 512 - 1) / 512 * 512;
+ 
+-
+     // partial sum for each thread
+     float tmp = 0.0f;
+ 
+@@ -29,14 +30,22 @@ static __global__ void mul_mat_vec_q(const void * __restrict__ vx, const void *
+         tmp += vec_dot_q_cuda(&x[ibx], &y[iby], iqs);
+     }
+ 
++    __shared__ float shared_sum[1];
++
+     // sum up partial sums and write back result
+ #pragma unroll
+     for (int mask = WARP_SIZE/2; mask > 0; mask >>= 1) {
+         tmp += VLLM_SHFL_XOR_SYNC(tmp, mask);
+     }
+ 
++    if (threadIdx.x == 64) {
++        shared_sum[0] = tmp;
++    }
++
++    __syncthreads();
++
+     if (threadIdx.x == 0) {
+-        dst[vec*nrows + row] = tmp;
++        dst[vec*nrows + row] = tmp + shared_sum[0];
+     }
+ }
+ 
+@@ -44,7 +53,7 @@ template<typename scalar_t>
+ static void mul_mat_vec_q4_0_q8_1_cuda(const void * vx, const void * vy, scalar_t * dst, const int ncols, const int nrows, const int nvecs, cudaStream_t stream) {
+     const int block_num_y = (nrows + GGML_CUDA_MMV_Y - 1) / GGML_CUDA_MMV_Y;
+     const dim3 block_nums(block_num_y, nvecs, 1);
+-    const dim3 block_dims(WARP_SIZE, GGML_CUDA_MMV_Y, 1);
++    const dim3 block_dims(BLOCK_SIZE, GGML_CUDA_MMV_Y, 1);
+     mul_mat_vec_q<scalar_t, QK4_0, QI4_0, block_q4_0, VDR_Q4_0_Q8_1_MMVQ, vec_dot_q4_0_q8_1>
+         <<<block_nums, block_dims, 0, stream>>>(vx, vy, dst, ncols, nrows, nvecs);
+ }
+@@ -53,7 +62,7 @@ template<typename scalar_t>
+ static void mul_mat_vec_q4_1_q8_1_cuda(const void * vx, const void * vy, scalar_t * dst, const int ncols, const int nrows, const int nvecs, cudaStream_t stream) {
+     const int block_num_y = (nrows + GGML_CUDA_MMV_Y - 1) / GGML_CUDA_MMV_Y;
+     const dim3 block_nums(block_num_y, nvecs, 1);
+-    const dim3 block_dims(WARP_SIZE, GGML_CUDA_MMV_Y, 1);
++    const dim3 block_dims(BLOCK_SIZE, GGML_CUDA_MMV_Y, 1);
+     mul_mat_vec_q<scalar_t, QK4_0, QI4_1, block_q4_1, VDR_Q4_1_Q8_1_MMVQ, vec_dot_q4_1_q8_1>
+         <<<block_nums, block_dims, 0, stream>>>(vx, vy, dst, ncols, nrows, nvecs);
+ }
+@@ -62,7 +71,7 @@ template<typename scalar_t>
+ static void mul_mat_vec_q5_0_q8_1_cuda(const void * vx, const void * vy, scalar_t * dst, const int ncols, const int nrows, const int nvecs, cudaStream_t stream) {
+     const int block_num_y = (nrows + GGML_CUDA_MMV_Y - 1) / GGML_CUDA_MMV_Y;
+     const dim3 block_nums(block_num_y, nvecs, 1);
+-    const dim3 block_dims(WARP_SIZE, GGML_CUDA_MMV_Y, 1);
++    const dim3 block_dims(BLOCK_SIZE, GGML_CUDA_MMV_Y, 1);
+     mul_mat_vec_q<scalar_t, QK5_0, QI5_0, block_q5_0, VDR_Q5_0_Q8_1_MMVQ, vec_dot_q5_0_q8_1>
+         <<<block_nums, block_dims, 0, stream>>>(vx, vy, dst, ncols, nrows, nvecs);
+ }
+@@ -71,7 +80,7 @@ template<typename scalar_t>
+ static void mul_mat_vec_q5_1_q8_1_cuda(const void * vx, const void * vy, scalar_t * dst, const int ncols, const int nrows, const int nvecs, cudaStream_t stream) {
+     const int block_num_y = (nrows + GGML_CUDA_MMV_Y - 1) / GGML_CUDA_MMV_Y;
+     const dim3 block_nums(block_num_y, nvecs, 1);
+-    const dim3 block_dims(WARP_SIZE, GGML_CUDA_MMV_Y, 1);
++    const dim3 block_dims(BLOCK_SIZE, GGML_CUDA_MMV_Y, 1);
+     mul_mat_vec_q<scalar_t, QK5_1, QI5_1, block_q5_1, VDR_Q5_1_Q8_1_MMVQ, vec_dot_q5_1_q8_1>
+         <<<block_nums, block_dims, 0, stream>>>(vx, vy, dst, ncols, nrows, nvecs);
+ }
+@@ -80,7 +89,7 @@ template<typename scalar_t>
+ static void mul_mat_vec_q8_0_q8_1_cuda(const void * vx, const void * vy, scalar_t * dst, const int ncols, const int nrows, const int nvecs, cudaStream_t stream) {
+     const int block_num_y = (nrows + GGML_CUDA_MMV_Y - 1) / GGML_CUDA_MMV_Y;
+     const dim3 block_nums(block_num_y, nvecs, 1);
+-    const dim3 block_dims(WARP_SIZE, GGML_CUDA_MMV_Y, 1);
++    const dim3 block_dims(BLOCK_SIZE, GGML_CUDA_MMV_Y, 1);
+     mul_mat_vec_q<scalar_t, QK8_0, QI8_0, block_q8_0, VDR_Q8_0_Q8_1_MMVQ, vec_dot_q8_0_q8_1>
+         <<<block_nums, block_dims, 0, stream>>>(vx, vy, dst, ncols, nrows, nvecs);
+ }
+@@ -89,7 +98,7 @@ template<typename scalar_t>
+ static void mul_mat_vec_q2_K_q8_1_cuda(const void * vx, const void * vy, scalar_t * dst, const int ncols, const int nrows, const int nvecs, cudaStream_t stream) {
+     const int block_num_y = (nrows + GGML_CUDA_MMV_Y - 1) / GGML_CUDA_MMV_Y;
+     const dim3 block_nums(block_num_y, nvecs, 1);
+-    const dim3 block_dims(WARP_SIZE, GGML_CUDA_MMV_Y, 1);
++    const dim3 block_dims(BLOCK_SIZE, GGML_CUDA_MMV_Y, 1);
+     mul_mat_vec_q<scalar_t, QK_K, QI2_K, block_q2_K, VDR_Q2_K_Q8_1_MMVQ, vec_dot_q2_K_q8_1>
+         <<<block_nums, block_dims, 0, stream>>>(vx, vy, dst, ncols, nrows, nvecs);
+ }
+@@ -98,7 +107,7 @@ template<typename scalar_t>
+ static void mul_mat_vec_q3_K_q8_1_cuda(const void * vx, const void * vy, scalar_t * dst, const int ncols, const int nrows, const int nvecs, cudaStream_t stream) {
+     const int block_num_y = (nrows + GGML_CUDA_MMV_Y - 1) / GGML_CUDA_MMV_Y;
+     const dim3 block_nums(block_num_y, nvecs, 1);
+-    const dim3 block_dims(WARP_SIZE, GGML_CUDA_MMV_Y, 1);
++    const dim3 block_dims(BLOCK_SIZE, GGML_CUDA_MMV_Y, 1);
+     mul_mat_vec_q<scalar_t, QK_K, QI3_K, block_q3_K, VDR_Q3_K_Q8_1_MMVQ, vec_dot_q3_K_q8_1>
+         <<<block_nums, block_dims, 0, stream>>>(vx, vy, dst, ncols, nrows, nvecs);
+ }
+@@ -107,7 +116,7 @@ template<typename scalar_t>
+ static void mul_mat_vec_q4_K_q8_1_cuda(const void * vx, const void * vy, scalar_t * dst, const int ncols, const int nrows, const int nvecs, cudaStream_t stream) {
+     const int block_num_y = (nrows + GGML_CUDA_MMV_Y - 1) / GGML_CUDA_MMV_Y;
+     const dim3 block_nums(block_num_y, nvecs, 1);
+-    const dim3 block_dims(WARP_SIZE, GGML_CUDA_MMV_Y, 1);
++    const dim3 block_dims(BLOCK_SIZE, GGML_CUDA_MMV_Y, 1);
+     mul_mat_vec_q<scalar_t, QK_K, QI4_K, block_q4_K, VDR_Q4_K_Q8_1_MMVQ, vec_dot_q4_K_q8_1>
+         <<<block_nums, block_dims, 0, stream>>>(vx, vy, dst, ncols, nrows, nvecs);
+ }
+@@ -116,7 +125,7 @@ template<typename scalar_t>
+ static void mul_mat_vec_q5_K_q8_1_cuda(const void * vx, const void * vy, scalar_t * dst, const int ncols, const int nrows, const int nvecs, cudaStream_t stream) {
+     const int block_num_y = (nrows + GGML_CUDA_MMV_Y - 1) / GGML_CUDA_MMV_Y;
+     const dim3 block_nums(block_num_y, nvecs, 1);
+-    const dim3 block_dims(WARP_SIZE, GGML_CUDA_MMV_Y, 1);
++    const dim3 block_dims(BLOCK_SIZE, GGML_CUDA_MMV_Y, 1);
+     mul_mat_vec_q<scalar_t, QK_K, QI5_K, block_q5_K, VDR_Q5_K_Q8_1_MMVQ, vec_dot_q5_K_q8_1>
+         <<<block_nums, block_dims, 0, stream>>>(vx, vy, dst, ncols, nrows, nvecs);
+ }
+@@ -125,7 +134,7 @@ template<typename scalar_t>
+ static void mul_mat_vec_q6_K_q8_1_cuda(const void * vx, const void * vy, scalar_t * dst, const int ncols, const int nrows, const int nvecs, cudaStream_t stream) {
+     const int block_num_y = (nrows + GGML_CUDA_MMV_Y - 1) / GGML_CUDA_MMV_Y;
+     const dim3 block_nums(block_num_y, nvecs, 1);
+-    const dim3 block_dims(WARP_SIZE, GGML_CUDA_MMV_Y, 1);
++    const dim3 block_dims(BLOCK_SIZE, GGML_CUDA_MMV_Y, 1);
+     mul_mat_vec_q<scalar_t, QK_K, QI6_K, block_q6_K, VDR_Q6_K_Q8_1_MMVQ, vec_dot_q6_K_q8_1>
+         <<<block_nums, block_dims, 0, stream>>>(vx, vy, dst, ncols, nrows, nvecs);
+ }
+@@ -134,7 +143,7 @@ template<typename scalar_t>
+ static void mul_mat_vec_iq2_xxs_q8_1_cuda(const void * vx, const void * vy, scalar_t * dst, const int ncols, const int nrows, const int nvecs, cudaStream_t stream) {
+     const int block_num_y = (nrows + GGML_CUDA_MMV_Y - 1) / GGML_CUDA_MMV_Y;
+     const dim3 block_nums(block_num_y, nvecs, 1);
+-    const dim3 block_dims(WARP_SIZE, GGML_CUDA_MMV_Y, 1);
++    const dim3 block_dims(BLOCK_SIZE, GGML_CUDA_MMV_Y, 1);
+     mul_mat_vec_q<scalar_t, QK_K, QI2_XXS, block_iq2_xxs, 1, vec_dot_iq2_xxs_q8_1>
+         <<<block_nums, block_dims, 0, stream>>>(vx, vy, dst, ncols, nrows, nvecs);
+ }
+@@ -143,7 +152,7 @@ template<typename scalar_t>
+ static void mul_mat_vec_iq2_xs_q8_1_cuda(const void * vx, const void * vy, scalar_t * dst, const int ncols, const int nrows, const int nvecs, cudaStream_t stream) {
+     const int block_num_y = (nrows + GGML_CUDA_MMV_Y - 1) / GGML_CUDA_MMV_Y;
+     const dim3 block_nums(block_num_y, nvecs, 1);
+-    const dim3 block_dims(WARP_SIZE, GGML_CUDA_MMV_Y, 1);
++    const dim3 block_dims(BLOCK_SIZE, GGML_CUDA_MMV_Y, 1);
+     mul_mat_vec_q<scalar_t, QK_K, QI2_XS, block_iq2_xs, 1, vec_dot_iq2_xs_q8_1>
+         <<<block_nums, block_dims, 0, stream>>>(vx, vy, dst, ncols, nrows, nvecs);
+ }
+@@ -152,7 +161,7 @@ template<typename scalar_t>
+ static void mul_mat_vec_iq2_s_q8_1_cuda(const void * vx, const void * vy, scalar_t * dst, const int ncols, const int nrows, const int nvecs, cudaStream_t stream) {
+     const int block_num_y = (nrows + GGML_CUDA_MMV_Y - 1) / GGML_CUDA_MMV_Y;
+     const dim3 block_nums(block_num_y, nvecs, 1);
+-    const dim3 block_dims(WARP_SIZE, GGML_CUDA_MMV_Y, 1);
++    const dim3 block_dims(BLOCK_SIZE, GGML_CUDA_MMV_Y, 1);
+     mul_mat_vec_q<scalar_t, QK_K, QI2_S, block_iq2_s, 1, vec_dot_iq2_s_q8_1>
+         <<<block_nums, block_dims, 0, stream>>>(vx, vy, dst, ncols, nrows, nvecs);
+ }
+@@ -161,7 +170,7 @@ template<typename scalar_t>
+ static void mul_mat_vec_iq3_xxs_q8_1_cuda(const void * vx, const void * vy, scalar_t * dst, const int ncols, const int nrows, const int nvecs, cudaStream_t stream) {
+     const int block_num_y = (nrows + GGML_CUDA_MMV_Y - 1) / GGML_CUDA_MMV_Y;
+     const dim3 block_nums(block_num_y, nvecs, 1);
+-    const dim3 block_dims(WARP_SIZE, GGML_CUDA_MMV_Y, 1);
++    const dim3 block_dims(BLOCK_SIZE, GGML_CUDA_MMV_Y, 1);
+     mul_mat_vec_q<scalar_t, QK_K, QI3_XXS, block_iq3_xxs, 1, vec_dot_iq3_xxs_q8_1>
+         <<<block_nums, block_dims, 0, stream>>>(vx, vy, dst, ncols, nrows, nvecs);
+ }
+@@ -170,7 +179,7 @@ template<typename scalar_t>
+ static void mul_mat_vec_iq1_s_q8_1_cuda(const void * vx, const void * vy, scalar_t * dst, const int ncols, const int nrows, const int nvecs, cudaStream_t stream) {
+     const int block_num_y = (nrows + GGML_CUDA_MMV_Y - 1) / GGML_CUDA_MMV_Y;
+     const dim3 block_nums(block_num_y, nvecs, 1);
+-    const dim3 block_dims(WARP_SIZE, GGML_CUDA_MMV_Y, 1);
++    const dim3 block_dims(BLOCK_SIZE, GGML_CUDA_MMV_Y, 1);
+     mul_mat_vec_q<scalar_t, QK_K, QI1_S, block_iq1_s, 1, vec_dot_iq1_s_q8_1>
+         <<<block_nums, block_dims, 0, stream>>>(vx, vy, dst, ncols, nrows, nvecs);
+ }
+@@ -179,7 +188,7 @@ template<typename scalar_t>
+ static void mul_mat_vec_iq1_m_q8_1_cuda(const void * vx, const void * vy, scalar_t * dst, const int ncols, const int nrows, const int nvecs, cudaStream_t stream) {
+     const int block_num_y = (nrows + GGML_CUDA_MMV_Y - 1) / GGML_CUDA_MMV_Y;
+     const dim3 block_nums(block_num_y, nvecs, 1);
+-    const dim3 block_dims(WARP_SIZE, GGML_CUDA_MMV_Y, 1);
++    const dim3 block_dims(BLOCK_SIZE, GGML_CUDA_MMV_Y, 1);
+     mul_mat_vec_q<scalar_t, QK_K, QI1_M, block_iq1_m, 1, vec_dot_iq1_m_q8_1>
+         <<<block_nums, block_dims, 0, stream>>>(vx, vy, dst, ncols, nrows, nvecs);
+ }
+@@ -188,7 +197,7 @@ template<typename scalar_t>
+ static void mul_mat_vec_iq4_nl_q8_1_cuda(const void * vx, const void * vy, scalar_t * dst, const int ncols, const int nrows, const int nvecs, cudaStream_t stream) {
+     const int block_num_y = (nrows + GGML_CUDA_MMV_Y - 1) / GGML_CUDA_MMV_Y;
+     const dim3 block_nums(block_num_y, nvecs, 1);
+-    const dim3 block_dims(WARP_SIZE, GGML_CUDA_MMV_Y, 1);
++    const dim3 block_dims(BLOCK_SIZE, GGML_CUDA_MMV_Y, 1);
+     mul_mat_vec_q<scalar_t, QK4_NL, QI4_NL, block_iq4_nl, VDR_Q4_0_Q8_1_MMVQ, vec_dot_iq4_nl_q8_1>
+         <<<block_nums, block_dims, 0, stream>>>(vx, vy, dst, ncols, nrows, nvecs);
+ }
+@@ -197,7 +206,7 @@ template<typename scalar_t>
+ static void mul_mat_vec_iq4_xs_q8_1_cuda(const void * vx, const void * vy, scalar_t * dst, const int ncols, const int nrows, const int nvecs, cudaStream_t stream) {
+     const int block_num_y = (nrows + GGML_CUDA_MMV_Y - 1) / GGML_CUDA_MMV_Y;
+     const dim3 block_nums(block_num_y, nvecs, 1);
+-    const dim3 block_dims(WARP_SIZE, GGML_CUDA_MMV_Y, 1);
++    const dim3 block_dims(BLOCK_SIZE, GGML_CUDA_MMV_Y, 1);
+     mul_mat_vec_q<scalar_t, QK_K, QI4_XS, block_iq4_xs, 1, vec_dot_iq4_xs_q8_1>
+         <<<block_nums, block_dims, 0, stream>>>(vx, vy, dst, ncols, nrows, nvecs);
+ }
+@@ -206,7 +215,7 @@ template<typename scalar_t>
+ static void mul_mat_vec_iq3_s_q8_1_cuda(const void * vx, const void * vy, scalar_t * dst, const int ncols, const int nrows, const int nvecs, cudaStream_t stream) {
+     const int block_num_y = (nrows + GGML_CUDA_MMV_Y - 1) / GGML_CUDA_MMV_Y;
+     const dim3 block_nums(block_num_y, nvecs, 1);
+-    const dim3 block_dims(WARP_SIZE, GGML_CUDA_MMV_Y, 1);
++    const dim3 block_dims(BLOCK_SIZE, GGML_CUDA_MMV_Y, 1);
+     mul_mat_vec_q<scalar_t, QK_K, QI3_XS, block_iq3_s, 1, vec_dot_iq3_s_q8_1>
+         <<<block_nums, block_dims, 0, stream>>>(vx, vy, dst, ncols, nrows, nvecs);
+ }
+diff --git a/csrc/quantization/gguf/vecdotq.cuh b/csrc/quantization/gguf/vecdotq.cuh
+index d0d4c74ed..9b23c56ad 100644
+--- a/csrc/quantization/gguf/vecdotq.cuh
++++ b/csrc/quantization/gguf/vecdotq.cuh
+@@ -65,7 +65,7 @@ template <int vdr> static __device__ __forceinline__ float vec_dot_q4_0_q8_1_imp
+ #endif
+ }
+ 
+-#define VDR_Q4_1_Q8_1_MMVQ 2
++#define VDR_Q4_1_Q8_1_MMVQ 4
+ #define VDR_Q4_1_Q8_1_MMQ  4
+ 
+ template <int vdr> static __device__ __forceinline__ float vec_dot_q4_1_q8_1_impl(
+@@ -159,7 +159,7 @@ template <int vdr> static __device__ __forceinline__ float vec_dot_q5_1_q8_1_imp
+ #endif
+ }
+ 
+-#define VDR_Q8_0_Q8_1_MMVQ 2
++#define VDR_Q8_0_Q8_1_MMVQ 4
+ #define VDR_Q8_0_Q8_1_MMQ 8
+ 
+ template <int vdr> static __device__ __forceinline__ float vec_dot_q8_0_q8_1_impl(
+diff --git a/csrc/quantization/gptq/q_gemm.cu b/csrc/quantization/gptq/q_gemm.cu
+index 8869d7cd5..e495319ef 100644
+--- a/csrc/quantization/gptq/q_gemm.cu
++++ b/csrc/quantization/gptq/q_gemm.cu
+@@ -22,11 +22,11 @@ https://github.com/qwopqwop200/GPTQ-for-LLaMa
+ namespace vllm {
+ namespace gptq {
+ 
+-#define BLOCK_KN_SIZE 128
++#define BLOCK_KN_SIZE 256
+ #define BLOCK_M_SIZE_MAX 8
+ #define MAX_GROUPS_IN_BLOCK (BLOCK_KN_SIZE / 32)
+-#define MAX_Q_GEMM_ROWS 50
+-#define MAX_Q_GEMM_ROWS_8BIT 24
++#define MAX_Q_GEMM_ROWS 32
++#define MAX_Q_GEMM_ROWS_8BIT 32
+ #define MAX_ALT_GEMM_ROWS 8
+ #define THREADS_X 32
+ #define THREADS_Y 32
+@@ -53,110 +53,12 @@ __host__ __forceinline__ hipblasStatus_t __compat_hipblasHgemm(
+   #define rocblas_hgemm __compat_hipblasHgemm
+ #endif
+ 
+-__forceinline__ __device__ half2 dot22_8(half2 (&dq)[4], const half* a_ptr,
+-                                         const half2 g_result) {
+-  half2 result = {};
+-  const half2* a2_ptr = (const half2*)a_ptr;
+-#pragma unroll
+-  for (int i = 0; i < 4; i++) result = __hfma2(dq[i], *a2_ptr++, result);
+-  return __hadd2(result, g_result);
+-}
+-
+ __forceinline__ __device__ float dot22_8_f(half2 (&dq)[4], const half* a_ptr) {
+-  half2 result = {};
+-  const half2* a2_ptr = (const half2*)a_ptr;
+-#pragma unroll
+-  for (int i = 0; i < 4; i++) result = __hfma2(dq[i], *a2_ptr++, result);
+-  return __half2float(__low2half(result)) + __half2float(__high2half(result));
+-}
+-
+-__forceinline__ __device__ half2 dot22_8(half2 (&dq)[4], const half* a_ptr,
+-                                         const half2 g_result,
+-                                         const half qs_h) {
+-  half2 result = {};
+-  const half2* a2_ptr = (const half2*)a_ptr;
+-#pragma unroll
+-  for (int i = 0; i < 4; i++) result = __hfma2(dq[i], *a2_ptr++, result);
+-  return __hfma2(result, __halves2half2(qs_h, qs_h), g_result);
+-}
+-
+-__forceinline__ __device__ half2 dot22_16(half2 (&dq)[8], const half* a_ptr,
+-                                          const half2 g_result,
+-                                          const half qs_h) {
+-  half2 result = {};
+-  const half2* a2_ptr = (const half2*)a_ptr;
+-#pragma unroll
+-  for (int i = 0; i < 8; i++) result = __hfma2(dq[i], *a2_ptr++, result);
+-  return __hfma2(result, __halves2half2(qs_h, qs_h), g_result);
+-}
+-
+-__forceinline__ __device__ half2 dot22_32(half2 (&dq)[16], const half* a_ptr,
+-                                          const half2 g_result,
+-                                          const half qs_h) {
+-  half2 result = {};
+-  const half2* a2_ptr = (const half2*)a_ptr;
+-#pragma unroll
+-  for (int i = 0; i < 16; i += 1) result = __hfma2(dq[i], *a2_ptr++, result);
+-  return __hfma2(result, __halves2half2(qs_h, qs_h), g_result);
+-}
+-
+-__forceinline__ __device__ float dot22_8_f(half2 (&dq)[4], const half* a_ptr,
+-                                           const float g_result,
+-                                           const float qs_f) {
+-  half2 result = {};
+-  const half2* a2_ptr = (const half2*)a_ptr;
+-#pragma unroll
+-  for (int i = 0; i < 4; i++) result = __hfma2(dq[i], *a2_ptr++, result);
+-  float result_f =
+-      __half2float(__low2half(result)) + __half2float(__high2half(result));
+-  return fma(result_f, qs_f, g_result);
+-}
+-
+-__forceinline__ __device__ float dot22_16_f(half2 (&dq)[8], const half* a_ptr,
+-                                            const float g_result,
+-                                            const float qs_f) {
+-  half2 result = {};
+-  const half2* a2_ptr = (const half2*)a_ptr;
+-#pragma unroll
+-  for (int i = 0; i < 8; i++) result = __hfma2(dq[i], *a2_ptr++, result);
+-  float result_f =
+-      __half2float(__low2half(result)) + __half2float(__high2half(result));
+-  return fma(result_f, qs_f, g_result);
+-}
+-
+-__forceinline__ __device__ float dot22_32_f(half2 (&dq)[16], const half* a_ptr,
+-                                            const float g_result,
+-                                            const float qs_f) {
+-  half2 result = {};
+-  const half2* a2_ptr = (const half2*)a_ptr;
+-#pragma unroll
+-  for (int i = 0; i < 16; i += 1) result = __hfma2(dq[i], *a2_ptr++, result);
+-  float result_f =
+-      __half2float(__low2half(result)) + __half2float(__high2half(result));
+-  return fma(result_f, qs_f, g_result);
+-}
+-
+-__forceinline__ __device__ half dot22_8_h(half2 (&dq)[4], const half* a_ptr,
+-                                          const half g_result,
+-                                          const half qs_h) {
+-  // Use FP32 accumulator to avoid potential overflow since unscaled weights are
+-  // in the range -128..127
+-
+   float result = {};
+-#pragma unroll
+-  for (int i = 0; i < 4; i++) {
+-    half2 w01 = dq[i];
+-    float w0 = __low2float(w01);
+-    float w1 = __high2float(w01);
+-    float x0 = __half2float(*a_ptr++);
+-    float x1 = __half2float(*a_ptr++);
+-    result = fma(w0, x0, result);
+-    result = fma(w1, x1, result);
+-  }
+-  float qs = __half2float(qs_h);
+-  result *= qs;
+-  half result_h = __float2half_rn(result);
+-  return __hadd(result_h, g_result);
++  const half2* a2_ptr = (const half2*)a_ptr;
++  #pragma unroll
++  for (int i = 0; i < 4; i++) result = __ockl_fdot2(dq[i], *a2_ptr++, result, true);
++  return result;
+ }
+ 
+ __forceinline__ __device__ half dot22_16_h(half2 (&dq)[8], const half* a_ptr,
+@@ -188,6 +90,7 @@ typedef void (*fp_gemm_half_q_half_gptq_kernel)(const half*, const uint32_t*,
+                                                 const bool, const int*);
+ 
+ template <bool first_block, int m_count>
++__launch_bounds__(BLOCK_KN_SIZE)
+ __global__ void gemm_half_q_half_gptq_4bit_kernel(
+     const half* __restrict__ a, const uint32_t* __restrict__ b_q_weight,
+     const uint32_t* __restrict__ b_gptq_qzeros,
+@@ -449,6 +352,7 @@ __global__ void gemm_half_q_half_gptq_2bit_kernel(
+ }
+ 
+ template <bool first_block, int m_count>
++__launch_bounds__(BLOCK_KN_SIZE)
+ __global__ void gemm_half_q_half_gptq_3bit_kernel(
+     const half* __restrict__ a, const uint32_t* __restrict__ b_q_weight,
+     const uint32_t* __restrict__ b_gptq_qzeros,
+@@ -578,6 +482,7 @@ __global__ void gemm_half_q_half_gptq_3bit_kernel(
+ }
+ 
+ template <bool first_block, int m_count>
++__launch_bounds__(BLOCK_KN_SIZE)
+ __global__ void gemm_half_q_half_gptq_8bit_kernel(
+     const half* __restrict__ a, const uint32_t* __restrict__ b_q_weight,
+     const uint32_t* __restrict__ b_gptq_qzeros,
+@@ -644,11 +549,11 @@ __global__ void gemm_half_q_half_gptq_8bit_kernel(
+ 
+   // Initial group
+   int zeros[4];
+-  half scales[4];
++  float scales[4];
+   b_gptq_qzeros_.item4(zeros, group, n);
+-  b_gptq_scales_.item4(scales, group, n);
++  b_gptq_scales_.item4_f(scales, group, n);
+   // Column result
+-  half block_c[m_count][4] = {};
++  float block_c[m_count][4] = {};
+ 
+   // Dequantize and multiply
+   int k = offset_k;
+@@ -657,7 +562,7 @@ __global__ void gemm_half_q_half_gptq_8bit_kernel(
+       group++;
+       nextgroup += groupsize;
+       b_gptq_qzeros_.item4(zeros, group, n);
+-      b_gptq_scales_.item4(scales, group, n);
++      b_gptq_scales_.item4_f(scales, group, n);
+     }
+ 
+ #pragma unroll
+@@ -678,15 +583,16 @@ __global__ void gemm_half_q_half_gptq_8bit_kernel(
+       dequant_8bit_8(load_int4[0].w, load_int4[1].w, dq[3], size_n,
+                      zeros[3] + zero_offset);
+ 
++      #pragma unroll
+       for (int m = 0; m < m_count; m++) {
+-        block_c[m][0] =
+-            dot22_8_h(dq[0], a_ptr + m * a_stride, block_c[m][0], scales[0]);
+-        block_c[m][1] =
+-            dot22_8_h(dq[1], a_ptr + m * a_stride, block_c[m][1], scales[1]);
+-        block_c[m][2] =
+-            dot22_8_h(dq[2], a_ptr + m * a_stride, block_c[m][2], scales[2]);
+-        block_c[m][3] =
+-            dot22_8_h(dq[3], a_ptr + m * a_stride, block_c[m][3], scales[3]);
++        block_c[m][0] = fma(dot22_8_f(dq[0], a_ptr + m * a_stride), scales[0],
++                            block_c[m][0]);
++        block_c[m][1] = fma(dot22_8_f(dq[1], a_ptr + m * a_stride), scales[1],
++                            block_c[m][1]);
++        block_c[m][2] = fma(dot22_8_f(dq[2], a_ptr + m * a_stride), scales[2],
++                            block_c[m][2]);
++        block_c[m][3] = fma(dot22_8_f(dq[3], a_ptr + m * a_stride), scales[3],
++                            block_c[m][3]);
+       }
+       a_ptr += 8;
+     }
+@@ -695,8 +601,10 @@ __global__ void gemm_half_q_half_gptq_8bit_kernel(
+ 
+   for (int m = 0; m < m_count; m++) {
+     half2* out = (half2*)c_.item_ptr(offset_m + m, n);
+-    half2 result01 = __halves2half2(block_c[m][0], block_c[m][1]);
+-    half2 result23 = __halves2half2(block_c[m][2], block_c[m][3]);
++    half2 result01 = __halves2half2(__float2half_rn(block_c[m][0]),
++                                    __float2half_rn(block_c[m][1]));
++    half2 result23 = __halves2half2(__float2half_rn(block_c[m][2]),
++                                    __float2half_rn(block_c[m][3]));
+     atomicAdd(out, result01);
+     atomicAdd(out + 1, result23);
+   }
+@@ -1175,13 +1083,13 @@ void reconstruct_exllama(const uint32_t* b_q_weight,
+   gridDim.y = DIVIDE(height, BLOCK_KN_SIZE);
+   gridDim.x = DIVIDE(width, BLOCK_KN_SIZE);
+ 
+-  auto reconstruct_exllama_kernel = reconstruct_exllama_4bit_kernel;
++  auto reconstruct_exllama_kernel = reconstruct_exllama_8bit_kernel;
+   if (bit == 2) {
+     reconstruct_exllama_kernel = reconstruct_exllama_2bit_kernel;
+   } else if (bit == 3) {
+     reconstruct_exllama_kernel = reconstruct_exllama_3bit_kernel;
+-  } else if (bit == 8) {
+-    reconstruct_exllama_kernel = reconstruct_exllama_8bit_kernel;
++  } else if (bit == 4) {
++    reconstruct_exllama_kernel = reconstruct_exllama_4bit_kernel;
+   }
+ 
+   const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+@@ -1234,7 +1142,6 @@ __global__ void gemm_half_q_half_alt_4bit_kernel(
+   int k = 0;
+   int z_w = w / 8;
+   int z_mod = (w % 8) * 4;
+-  half2 res2;
+   half res[BLOCK_M_SIZE_MAX] = {};
+ 
+   unsigned int tmp;
+@@ -1260,12 +1167,7 @@ __global__ void gemm_half_q_half_alt_4bit_kernel(
+       zeros_tmp[tmp_k] = zero;
+     }
+     for (int m = 0; m < b_end; m++) {
+-#ifndef USE_ROCM
+-      res2 = {};
+-#else
+-      res2.x = __half_as_ushort(__float2half(0));
+-      res2.y = __half_as_ushort(__float2half(0));
+-#endif
++      half2 res2{};
+       res2 = __hfma2(
+           __hfma2(deq2[(tmp >> 0) & 0xff][off], scales_tmp[0], zeros_tmp[0]),
+           blockvec[m][k + 0], res2);
+@@ -1278,12 +1180,7 @@ __global__ void gemm_half_q_half_alt_4bit_kernel(
+       res2 = __hfma2(
+           __hfma2(deq2[(tmp >> 24) & 0xff][off], scales_tmp[3], zeros_tmp[3]),
+           blockvec[m][k + 3], res2);
+-#ifndef USE_ROCM
+       res[m] = __hadd(res[m], __hadd(res2.x, res2.y));
+-#else
+-      res[m] = __hadd(
+-          res[m], __hadd(__ushort_as_half(res2.x), __ushort_as_half(res2.y)));
+-#endif
+     }
+     i += width;
+     k += 4;
+@@ -1329,7 +1226,6 @@ __global__ void gemm_half_q_half_alt_8bit_kernel(
+   int k = 0;
+   int z_w = w / 4;
+   int z_mod = (w % 4) * 8;
+-  half2 res2;
+   half res[BLOCK_M_SIZE_MAX] = {};
+ 
+   unsigned int tmp;
+@@ -1355,12 +1251,7 @@ __global__ void gemm_half_q_half_alt_8bit_kernel(
+       zeros_tmp[tmp_k] = zero;
+     }
+     for (int m = 0; m < b_end; m++) {
+-#ifndef USE_ROCM
+-      res2 = {};
+-#else
+-      res2.x = __half_as_ushort(__float2half(0));
+-      res2.y = __half_as_ushort(__float2half(0));
+-#endif
++      half2 res2{};
+       half2 v12 = __halves2half2(__int2half_rn(tmp & 0xFF),
+                                  __int2half_rn((tmp >> 8) & 0xFF));
+       res2 = __hfma2(__hfma2(v12, scales_tmp[0], zeros_tmp[0]),
+@@ -1369,12 +1260,7 @@ __global__ void gemm_half_q_half_alt_8bit_kernel(
+                                  __int2half_rn((tmp >> 24) & 0xFF));
+       res2 = __hfma2(__hfma2(v34, scales_tmp[1], zeros_tmp[1]),
+                      blockvec[m][k + 1], res2);
+-#ifndef USE_ROCM
+       res[m] = __hadd(res[m], __hadd(res2.x, res2.y));
+-#else
+-      res[m] = __hadd(
+-          res[m], __hadd(__ushort_as_half(res2.x), __ushort_as_half(res2.y)));
+-#endif
+     }
+     i += width;
+     k += 2;
+@@ -1848,6 +1734,54 @@ void shuffle_exllama_weight(uint32_t* q_weight, int* q_perm, int height,
+   shuffle_kernel<<<gridDim, blockDim, 0, stream>>>(q_weight, height, width);
+ }
+ 
++__global__ void shuffle_awq_qweight_kernel(uint32_t *q_weight, uint32_t *q_tmp,
++                                           int size_k, int size_n)
++{
++  int awq_k = blockIdx.x * 8; /* unpack_k */
++  int awq_stride = size_n / 8;
++  uint32_t *q_block_weight = q_weight + awq_k*awq_stride;
++  uint32_t *q_block_tmp = q_tmp + awq_k*awq_stride;
++
++  for (auto gptq_n = threadIdx.x; gptq_n < size_n; gptq_n += blockDim.x) {
++    uint32_t w = q_block_weight[gptq_n];
++    shuffle_4bit_8(&w, 0);
++    shuffle_4bit_8(&w, 0);
++    q_block_tmp[gptq_n] = w;
++  }
++
++  __syncthreads();
++
++  for (auto gptq_n = threadIdx.x; gptq_n < size_n; gptq_n += blockDim.x) {
++    uint32_t w = 0;
++    int awq_n = gptq_n / 8;
++    int awq_bf = (gptq_n % 8) * 4;
++    w |= ((q_block_tmp[0*awq_stride + awq_n] >> awq_bf) & 0xF) << 0;
++    w |= ((q_block_tmp[1*awq_stride + awq_n] >> awq_bf) & 0xF) << 4;
++    w |= ((q_block_tmp[2*awq_stride + awq_n] >> awq_bf) & 0xF) << 8;
++    w |= ((q_block_tmp[3*awq_stride + awq_n] >> awq_bf) & 0xF) << 12;
++    w |= ((q_block_tmp[4*awq_stride + awq_n] >> awq_bf) & 0xF) << 16;
++    w |= ((q_block_tmp[5*awq_stride + awq_n] >> awq_bf) & 0xF) << 20;
++    w |= ((q_block_tmp[6*awq_stride + awq_n] >> awq_bf) & 0xF) << 24;
++    w |= ((q_block_tmp[7*awq_stride + awq_n] >> awq_bf) & 0xF) << 28;
++    shuffle_4bit_8(&w, 0);
++    q_block_weight[gptq_n] = w;
++  }
++}
++
++void shuffle_awq_qweight_launch(uint32_t *q_weight, uint32_t *q_tmp,
++                                int height, int width)
++{
++  dim3 blockDim, gridDim;
++  blockDim.x = THREADS_X;
++  blockDim.y = 1;
++  gridDim.x = height / 8;
++  gridDim.y = 1;
++  const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
++  shuffle_awq_qweight_kernel<<<gridDim, blockDim, 0, stream>>>(
++      q_weight, q_tmp,height, width);
++}
++
++
+ }  // namespace gptq
+ }  // namespace vllm
+ 
+@@ -1866,7 +1800,8 @@ torch::Tensor gptq_gemm(torch::Tensor a, torch::Tensor b_q_weight,
+       (const uint32_t*)b_q_weight.data_ptr(),
+       (const uint32_t*)b_gptq_qzeros.data_ptr(),
+       (const half*)b_gptq_scales.data_ptr(),
+-      b_g_idx.device().is_meta() ? NULL : (const int*)b_g_idx.data_ptr(),
++      b_g_idx.device().is_meta() || b_g_idx.numel() == 0
++        ? NULL : (const int*)b_g_idx.data_ptr(),
+       (half*)c.data_ptr(), (half*)temp_dq.data_ptr(),
+       c.size(0),              // m
+       c.size(1),              // n
+@@ -1885,3 +1820,19 @@ void gptq_shuffle(torch::Tensor q_weight, torch::Tensor q_perm, int64_t bit) {
+           : (int*)q_perm.data_ptr(),
+       q_weight.size(0) * 32 / bit, q_weight.size(1), bit);
+ }
++
++void gptq_shuffle_awq_qweight(torch::Tensor q_weight, int64_t bit) {
++  const at::cuda::OptionalCUDAGuard device_guard(device_of(q_weight));
++  TORCH_CHECK(q_weight.is_contiguous());
++  TORCH_CHECK(q_weight.size(0) % 8 == 0);
++  TORCH_CHECK(bit == 4, "Only support Int4");
++
++  auto options = torch::TensorOptions().dtype(q_weight.dtype())
++                                       .device(q_weight.device());
++  at::Tensor q_tmp = torch::empty(q_weight.sizes(), options);
++
++  vllm::gptq::shuffle_awq_qweight_launch((uint32_t*)q_weight.data_ptr(),
++                                         (uint32_t*)q_tmp.data_ptr(),
++                                         q_weight.size(0),
++                                         q_weight.size(1) * 8);
++}
+diff --git a/csrc/quantization/gptq/qdq_4.cuh b/csrc/quantization/gptq/qdq_4.cuh
+index 7f65d2d28..bff18eb2f 100644
+--- a/csrc/quantization/gptq/qdq_4.cuh
++++ b/csrc/quantization/gptq/qdq_4.cuh
+@@ -92,17 +92,18 @@ __forceinline__ __device__ void dequant_4bit_8_gptq(const uint32_t q_0,
+                                                     half2 (&y1y16)[2],
+                                                     int stride, bool scaled) {
+   const uint32_t c0 = 0x64006400;
++  const half2 inv16{ 0x1.p-4f, 0x1.p-4f }; // 1/16
+ 
+   uint32_t qa = q_0;
+-  half2_uint32 q0((qa & 0x000f000f) |
+-                  c0);  // half2( q[0]      + 1024, q[1]      + 1024 )
+-  half2_uint32 q1((qa & 0x00f000f0) |
+-                  c0);  // half2( q[2] * 16 + 1024, q[3] * 16 + 1024 )
++  half2_uint32 q0(bfi(0x000f000f, qa,
++                      c0));  // half2( q[0]      + 1024, q[1]      + 1024 )
++  half2_uint32 q1(bfi(0x00f000f0, qa,
++                      c0));  // half2( q[2] * 16 + 1024, q[3] * 16 + 1024 )
+   qa >>= 8;
+-  half2_uint32 q2((qa & 0x000f000f) |
+-                  c0);  // half2( q[4]      + 1024, q[5]      + 1024 )
+-  half2_uint32 q3((qa & 0x00f000f0) |
+-                  c0);  // half2( q[6] * 16 + 1024, q[7] * 16 + 1024 )
++  half2_uint32 q2(bfi(0x000f000f, qa,
++                      c0));  // half2( q[4]      + 1024, q[5]      + 1024 )
++  half2_uint32 q3(bfi(0x00f000f0, qa,
++                      c0));  // half2( q[6] * 16 + 1024, q[7] * 16 + 1024 )
+ 
+   if (scaled) {
+     dq[0] = __hfma2(q0.as_half2, y1y16[0],
+@@ -113,10 +114,10 @@ __forceinline__ __device__ void dequant_4bit_8_gptq(const uint32_t q_0,
+     dq[3] = __hfma2(q3.as_half2, y1y16[1], z1z16[1]);
+   } else {
+     dq[0] = __hadd2(q0.as_half2, z1z16[0]);  // half2( q[0] - z, q[1] - z )
+-    dq[1] = __hfma2(q1.as_half2, y1y16[1],
++    dq[1] = __hfma2(q1.as_half2, inv16,
+                     z1z16[1]);               // half2( q[2] - z, q[3] - z )
+     dq[2] = __hadd2(q2.as_half2, z1z16[0]);  // half2( q[4] - z, q[5] - z )
+-    dq[3] = __hfma2(q3.as_half2, y1y16[1],
++    dq[3] = __hfma2(q3.as_half2, inv16,
+                     z1z16[1]);  // half2( q[6] - z, q[7] - z )
+   }
+ }
+diff --git a/csrc/quantization/gptq/qdq_8.cuh b/csrc/quantization/gptq/qdq_8.cuh
+index feb5d2204..07715f160 100644
+--- a/csrc/quantization/gptq/qdq_8.cuh
++++ b/csrc/quantization/gptq/qdq_8.cuh
+@@ -16,12 +16,22 @@ __forceinline__ __device__ void dequant_8bit_8(const uint32_t q_0,
+                                                const uint32_t q_1,
+                                                half2 (&dq)[4], int stride,
+                                                const uint32_t zero) {
+-  half dqh[8];
+-  for (int i = 0; i < 4; i++) dqh[i] = dq_ns(exb(q_0, i * 8, 0xff), zero);
+-  for (int i = 0; i < 4; i++) dqh[i + 4] = dq_ns(exb(q_1, i * 8, 0xff), zero);
+-
+-  for (int i = 0; i < 4; i++)
+-    dq[i] = __halves2half2(dqh[i * 2], dqh[i * 2 + 1]);
++  constexpr uint32_t ext10 = 0x07010700;
++  constexpr uint32_t ext32 = 0x07030702;
++  constexpr uint32_t c0 = 0x64006400;
++
++  half2 z2 = __hadd2(*reinterpret_cast<const half2*>(&c0),
++                     __half2half2(__int2half_rn(zero)));
++
++  half2_uint32 qa(__builtin_amdgcn_perm(c0, q_0, ext10));
++  half2_uint32 qb(__builtin_amdgcn_perm(c0, q_0, ext32));
++  half2_uint32 qc(__builtin_amdgcn_perm(c0, q_1, ext10));
++  half2_uint32 qd(__builtin_amdgcn_perm(c0, q_1, ext32));
++
++  dq[0] = __hsub2(qa.as_half2, z2);
++  dq[1] = __hsub2(qb.as_half2, z2);
++  dq[2] = __hsub2(qc.as_half2, z2);
++  dq[3] = __hsub2(qd.as_half2, z2);
+ }
+ 
+ }  // namespace gptq
+diff --git a/csrc/quantization/gptq/qdq_util.cuh b/csrc/quantization/gptq/qdq_util.cuh
+index 9426408fe..dcfe535aa 100644
+--- a/csrc/quantization/gptq/qdq_util.cuh
++++ b/csrc/quantization/gptq/qdq_util.cuh
+@@ -51,6 +51,21 @@ __forceinline__ __device__ int exb(const uint32_t q1, const uint32_t q0,
+   return (int)(__funnelshift_rc(q0, q1, shift) & mask);
+ }
+ 
++__forceinline__ __device__ uint32_t bfi(const uint32_t S0, const uint32_t S1,
++                                        const uint32_t S2) {
++#if defined(USE_ROCM)
++  uint32_t result;
++  __asm__ (
++    "  v_bfi_b32  %0, %1, %2, %3  \n"
++    : "=v" (result)
++    : "v"(S0), "v"(S1), "v"(S2)
++  );
++  return result;
++#else
++  return (S0 & S1) | (~S0 & S2);
++#endif
++}
++
+ }  // namespace gptq
+ }  // namespace vllm
+ #endif
+diff --git a/csrc/torch_bindings.cpp b/csrc/torch_bindings.cpp
+index 83d4943d6..1623bdde0 100644
+--- a/csrc/torch_bindings.cpp
++++ b/csrc/torch_bindings.cpp
+@@ -585,6 +585,9 @@ TORCH_LIBRARY_EXPAND(TORCH_EXTENSION_NAME, ops) {
+   ops.def("gptq_shuffle(Tensor! q_weight, Tensor q_perm, int bit) -> ()");
+   ops.impl("gptq_shuffle", torch::kCUDA, &gptq_shuffle);
+ 
++  ops.def("gptq_shuffle_awq_qweight(Tensor! q_weight, int bit) -> ()");
++  ops.impl("gptq_shuffle_awq_qweight", torch::kCUDA, &gptq_shuffle_awq_qweight);
++
+   // Compute FP8 quantized tensor for given scaling factor.
+   ops.def(
+       "static_scaled_fp8_quant(Tensor! result, Tensor input, Tensor scale) -> "
+diff --git a/requirements/rocm-build.txt b/requirements/rocm-build.txt
+index b977e80be..23d7140a8 100644
+--- a/requirements/rocm-build.txt
++++ b/requirements/rocm-build.txt
+@@ -1,7 +1,7 @@
+ # Common dependencies
+ -r common.txt
+ 
+---extra-index-url https://download.pytorch.org/whl/rocm6.4
++--extra-index-url https://download.pytorch.org/whl/rocm6.3
+ torch==2.9.0
+ torchvision==0.24.0
+ torchaudio==2.9.0
+@@ -13,5 +13,5 @@ setuptools>=77.0.3,<80.0.0
+ setuptools-scm>=8
+ wheel
+ jinja2>=3.1.6
+-amdsmi==6.4.3
++amdsmi>=6.3,<6.4
+ timm>=1.0.17
+diff --git a/vllm/_custom_ops.py b/vllm/_custom_ops.py
+index 231965500..e698427ec 100644
+--- a/vllm/_custom_ops.py
++++ b/vllm/_custom_ops.py
+@@ -553,6 +553,8 @@ if hasattr(torch.ops._C, "gptq_gemm"):
+ def gptq_shuffle(q_weight: torch.Tensor, q_perm: torch.Tensor, bit: int) -> None:
+     torch.ops._C.gptq_shuffle(q_weight, q_perm, bit)
+ 
++def gptq_shuffle_awq_qweight(q_weight: torch.Tensor, bit: int) -> None:
++    torch.ops._C.gptq_shuffle_awq_qweight(q_weight, bit)
+ 
+ # marlin_24
+ def gptq_marlin_24_gemm(
+@@ -2084,9 +2086,9 @@ def moe_wna16_gemm(
+     BLOCK_SIZE_K: int,
+     bit: int,
+ ) -> torch.Tensor:
+-    if not current_platform.is_cuda():
++    if not current_platform.is_cuda_alike():
+         raise NotImplementedError(
+-            "The optimized moe_wna16_gemm kernel is only available on CUDA platforms"
++            "The optimized moe_wna16_gemm kernel is only available on CUDA or ROCm platforms"
+         )
+     torch.ops._moe_C.moe_wna16_gemm(
+         input,
+diff --git a/vllm/attention/layer.py b/vllm/attention/layer.py
+index 7ef77db8f..9accf987a 100644
+--- a/vllm/attention/layer.py
++++ b/vllm/attention/layer.py
+@@ -3,6 +3,7 @@
+ """Attention layer."""
+ 
+ import functools
++from collections.abc import Callable
+ from typing import cast
+ 
+ import torch
+@@ -49,9 +50,55 @@ from vllm.v1.kv_cache_interface import (
+     SlidingWindowSpec,
+ )
+ 
++if current_platform.is_rocm():
++    from vllm.platforms.rocm import on_gfx9, on_gfx906
++else:
++    on_gfx9 = lambda *args, **kwargs: False
++
++
++FP8_DTYPE = current_platform.fp8_dtype()
+ logger = init_logger(__name__)
+ 
+ 
++def maybe_get_vit_flash_attn_backend(
++    attn_backend: AttentionBackendEnum,
++    attn_backend_override: AttentionBackendEnum | None = None,
++) -> tuple[AttentionBackendEnum, Callable | None]:
++    if current_platform.is_rocm():
++        if envs.VLLM_ROCM_USE_AITER and envs.VLLM_ROCM_USE_AITER_MHA and on_gfx9():
++            attn_backend = AttentionBackendEnum.ROCM_AITER_FA
++        elif (
++            attn_backend_override is None
++            and (on_gfx9() or on_gfx906())
++            and attn_backend == AttentionBackendEnum.FLASH_ATTN
++        ):
++            pass
++        else:
++            return AttentionBackendEnum.TORCH_SDPA, None
++    elif current_platform.is_cuda():
++        pass
++    elif current_platform.is_xpu():
++        assert attn_backend == AttentionBackendEnum.FLASH_ATTN, (
++            "XPU platform only supports FLASH_ATTN as vision attention backend."
++        )
++        pass
++    else:
++        return AttentionBackendEnum.TORCH_SDPA, None
++
++    if attn_backend in {
++        AttentionBackendEnum.FLASH_ATTN,
++        AttentionBackendEnum.ROCM_AITER_FA,
++    }:
++        if attn_backend == AttentionBackendEnum.ROCM_AITER_FA:
++            from aiter import flash_attn_varlen_func
++        else:
++            from vllm.attention.utils.fa_utils import flash_attn_varlen_func
++    else:
++        flash_attn_varlen_func = None
++
++    return attn_backend, flash_attn_varlen_func
++
++
+ def _init_kv_cache_quant(
+     layer: nn.Module,
+     quant_config: QuantizationConfig | None,
+diff --git a/vllm/attention/ops/triton_unified_attention.py b/vllm/attention/ops/triton_unified_attention.py
+index f61c8e9b8..8cb053c6c 100644
+--- a/vllm/attention/ops/triton_unified_attention.py
++++ b/vllm/attention/ops/triton_unified_attention.py
+@@ -53,6 +53,10 @@ def find_seq_idx(
+     return left - 1
+ 
+ 
++@triton.autotune(
++    configs=[triton.Config({}, num_stages=1, num_warps=2)],
++    key=[]
++)
+ @triton.jit
+ def kernel_unified_attention_2d(
+     output_ptr,  # [num_tokens, num_query_heads, head_size]
+@@ -379,6 +383,10 @@ def kernel_unified_attention_2d(
+     )
+ 
+ 
++@triton.autotune(
++    configs=[triton.Config({}, num_stages=1, num_warps=2)],
++    key=[]
++)
+ @triton.jit
+ def kernel_unified_attention_3d(
+     segm_output_ptr,
+@@ -874,6 +882,7 @@ def unified_attention(
+     num_kv_heads = k.shape[2]
+     num_queries_per_kv = num_query_heads // num_kv_heads
+     head_size = q.shape[2]
++    head_size_padded = triton.next_power_of_2(head_size)
+ 
+     BLOCK_M = (
+         16 if num_queries_per_kv <= 16 else triton.next_power_of_2(num_queries_per_kv)
+@@ -891,21 +900,79 @@ def unified_attention(
+     #    = floor(q.shape[0] / BLOCK_Q) + num_seqs
+     total_num_q_blocks = q.shape[0] // BLOCK_Q + num_seqs
+ 
+-    # Tile sizes for prefill and decode. Gemma3 models use optimized values.
+-    # Note: tile size must be at least 32 for fp8 (element_size == 1).
+-    sliding_window_val = 1 + window_size[0] if window_size[0] >= 0 else 0
+-    TILE_SIZE_PREFILL = _get_tile_size(
+-        head_size,
+-        sliding_window_val,
+-        q.element_size(),
+-        is_prefill=True,
+-    )
+-    TILE_SIZE_DECODE = _get_tile_size(
+-        head_size,
+-        sliding_window_val,
+-        q.element_size(),
+-        is_prefill=False,
+-    )
++    # Assigning default tile sizes for prefill and decode.
++    # Note: each tile size must be at least 32 for "fp8" (q.element_size() == 1)
++    # and at least 16 for all other data types.
++    is_fp8 = q.element_size() == 1
++    min_tile_size = 32 if is_fp8 else 16
++    abs_min_tile_size = 32 if is_fp8 else 8
++
++    def _next_power_of_two(x: int) -> int:
++        if x <= 1:
++            return 1
++        return 1 << (x - 1).bit_length()
++
++    def _prev_power_of_two(x: int) -> int:
++        if x <= 1:
++            return 1
++        return 1 << ((x.bit_length() - 1))
++
++    preferred_prefill = min(_next_power_of_two(block_size), 256)
++    preferred_prefill = max(preferred_prefill, min_tile_size)
++    preferred_decode = max(min_tile_size,
++                           16 if q.element_size() >= 2 else 32)
++    preferred_decode = min(preferred_decode, preferred_prefill)
++
++    max_tile_shared = None
++    shared_mem_limit = None
++    try:
++        device_props = torch.cuda.get_device_properties(q.device)
++        shared_mem_limit = max(
++            getattr(device_props, "sharedMemPerBlockOptin", 0),
++            getattr(device_props, "sharedMemPerBlock", 0),
++        )
++        if shared_mem_limit == 0:
++            # Fallback to the architectural minimum when runtime does not report.
++            shared_mem_limit = 64 * 1024
++        if shared_mem_limit and shared_mem_limit > 0:
++            head_bytes = max(2 * head_size_padded *
++                             max(k.element_size(), v.element_size(), 1), 1)
++            softmax_bytes = max(BLOCK_M * 4, 1)
++            max_tile_per_head = shared_mem_limit // head_bytes
++            max_tile_softmax = shared_mem_limit // softmax_bytes
++            if max_tile_per_head > 0:
++                candidates = [max_tile_per_head]
++                if max_tile_softmax > 0:
++                    candidates.append(max_tile_softmax)
++                max_tile_shared = max(abs_min_tile_size, min(candidates))
++    except Exception:  # pragma: no cover
++        max_tile_shared = None
++
++    max_tile_block = min(_next_power_of_two(block_size), 256)
++    kv_elem_bytes = max(k.element_size(), v.element_size(), 1)
++
++    def _estimate_shared(tile: int) -> int:
++        if shared_mem_limit is None or shared_mem_limit <= 0:
++            return 0
++        shared = 0
++        shared += 2 * head_size_padded * tile * kv_elem_bytes
++        shared += 2 * BLOCK_M * tile * 4
++        return shared
++
++    def _final_tile(preferred: int) -> int:
++        tile = max(preferred, min_tile_size)
++        tile = _next_power_of_two(tile)
++        tile = min(tile, max_tile_block)
++        if max_tile_shared is not None and max_tile_shared > 0:
++            while tile > max_tile_shared and tile > abs_min_tile_size:
++                tile //= 2
++        if shared_mem_limit and shared_mem_limit > 0:
++            while tile > abs_min_tile_size and _estimate_shared(tile) > shared_mem_limit:
++                tile //= 2
++        return max(tile, abs_min_tile_size)
++
++    TILE_SIZE_PREFILL = _final_tile(preferred_prefill)
++    TILE_SIZE_DECODE = _final_tile(preferred_decode)
+ 
+     # Launch the 2D kernel if
+     # 1. No intermediate tiled softmax buffers for the 3D kernel have been allocated, or
+diff --git a/vllm/config/model.py b/vllm/config/model.py
+index 1de9d15cf..ad200c074 100644
+--- a/vllm/config/model.py
++++ b/vllm/config/model.py
+@@ -1860,19 +1860,16 @@ _FLOAT16_NOT_SUPPORTED_MODELS = {
+ 
+ 
+ def _is_valid_dtype(model_type: str, dtype: torch.dtype):
+-    if model_type in _FLOAT16_NOT_SUPPORTED_MODELS and dtype == torch.float16:  # noqa: E501, SIM103
+-        return False
+-
++    # NOTE(gfx906): ignore numerical instability
+     return True
+ 
+ 
+ def _check_valid_dtype(model_type: str, dtype: torch.dtype):
++    # NOTE(gfx906): ignore numerical instability
+     if model_type in _FLOAT16_NOT_SUPPORTED_MODELS and dtype == torch.float16:
+-        reason = _FLOAT16_NOT_SUPPORTED_MODELS[model_type]
+-        raise ValueError(
+-            f"The model type {model_type!r} does not support float16. Reason: {reason}"
+-        )
+-
++        logger.warning(f"Although using float16 in model type {model_type!r} "
++                       f"may introduce potential numerical instability issues."
++                       " gfx906 only supports float16, so we continue to use.")
+     return True
+ 
+ 
+diff --git a/vllm/model_executor/layers/fused_moe/configs/E=128,N=192,device_name=AMD_GFX906,dtype=int8_w8a16.json b/vllm/model_executor/layers/fused_moe/configs/E=128,N=192,device_name=AMD_GFX906,dtype=int8_w8a16.json
+new file mode 100644
+index 000000000..a58b1f7dd
+--- /dev/null
++++ b/vllm/model_executor/layers/fused_moe/configs/E=128,N=192,device_name=AMD_GFX906,dtype=int8_w8a16.json
+@@ -0,0 +1,164 @@
++{
++    "1": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 16,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 2,
++        "num_stages": 2,
++        "waves_per_eu": 0
++    },
++    "2": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 64,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 2,
++        "num_stages": 2,
++        "waves_per_eu": 0
++    },
++    "4": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 64,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 1,
++        "num_stages": 2,
++        "waves_per_eu": 0
++    },
++    "8": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 16,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 2,
++        "num_stages": 2,
++        "waves_per_eu": 0
++    },
++    "16": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 16,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 2,
++        "num_stages": 2,
++        "waves_per_eu": 0
++    },
++    "24": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 16,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 4,
++        "num_warps": 2,
++        "num_stages": 2,
++        "waves_per_eu": 0
++    },
++    "32": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 64,
++        "GROUP_SIZE_M": 4,
++        "num_warps": 1,
++        "num_stages": 2,
++        "waves_per_eu": 0
++    },
++    "48": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 64,
++        "GROUP_SIZE_M": 4,
++        "num_warps": 1,
++        "num_stages": 2,
++        "waves_per_eu": 0
++    },
++    "64": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 16,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 2,
++        "num_stages": 2,
++        "waves_per_eu": 0
++    },
++    "96": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 64,
++        "GROUP_SIZE_M": 16,
++        "num_warps": 1,
++        "num_stages": 2,
++        "waves_per_eu": 0
++    },
++    "128": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 64,
++        "GROUP_SIZE_M": 4,
++        "num_warps": 1,
++        "num_stages": 2,
++        "waves_per_eu": 0
++    },
++    "256": {
++        "BLOCK_SIZE_M": 16,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 64,
++        "GROUP_SIZE_M": 8,
++        "num_warps": 1,
++        "num_stages": 2,
++        "waves_per_eu": 0
++    },
++    "512": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 1,
++        "num_stages": 2,
++        "waves_per_eu": 0
++    },
++    "1024": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 4,
++        "num_warps": 1,
++        "num_stages": 2,
++        "waves_per_eu": 0
++    },
++    "1536": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 1,
++        "num_stages": 2,
++        "waves_per_eu": 0
++    },
++    "2048": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 1,
++        "num_warps": 1,
++        "num_stages": 2,
++        "waves_per_eu": 0
++    },
++    "3072": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 4,
++        "num_warps": 1,
++        "num_stages": 2,
++        "waves_per_eu": 0
++    },
++    "4096": {
++        "BLOCK_SIZE_M": 32,
++        "BLOCK_SIZE_N": 64,
++        "BLOCK_SIZE_K": 32,
++        "GROUP_SIZE_M": 4,
++        "num_warps": 1,
++        "num_stages": 2,
++        "waves_per_eu": 0
++    }
++}
+\ No newline at end of file
+diff --git a/vllm/model_executor/layers/fused_moe/configs/E=20,N=1536,device_name=AMD_GFX906,dtype=int4_w4a16.json b/vllm/model_executor/layers/fused_moe/configs/E=20,N=1536,device_name=AMD_GFX906,dtype=int4_w4a16.json
+new file mode 100644
+index 000000000..32e53c302
+--- /dev/null
++++ b/vllm/model_executor/layers/fused_moe/configs/E=20,N=1536,device_name=AMD_GFX906,dtype=int4_w4a16.json
+@@ -0,0 +1,10 @@
++{
++    "1024": {"BLOCK_SIZE_M": 64, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32,
++             "GROUP_SIZE_M": 8, "num_warps": 4, "num_stages": 2},
++    "2048": {"BLOCK_SIZE_M": 64, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32,
++             "GROUP_SIZE_M": 8, "num_warps": 4, "num_stages": 2},
++    "4096": {"BLOCK_SIZE_M": 64, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32,
++             "GROUP_SIZE_M": 8, "num_warps": 4, "num_stages": 2},
++    "8192": {"BLOCK_SIZE_M": 64, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32,
++             "GROUP_SIZE_M": 8, "num_warps": 4, "num_stages": 2}
++}
+\ No newline at end of file
+diff --git a/vllm/model_executor/layers/fused_moe/fused_moe.py b/vllm/model_executor/layers/fused_moe/fused_moe.py
+index b286c3bc6..d4f3f7b67 100644
+--- a/vllm/model_executor/layers/fused_moe/fused_moe.py
++++ b/vllm/model_executor/layers/fused_moe/fused_moe.py
+@@ -821,9 +821,11 @@ def get_config_file_name(
+     if "H200" in device_name.split("_"):
+         device_name = "NVIDIA_H200"
+     dtype_selector = "" if not dtype else f",dtype={dtype}"
+-    block_shape_selector = (
+-        "" if not block_shape or not all(block_shape) else f",block_shape={block_shape}"
+-    ).replace(" ", "")
++    block_shape_selector = ("" if not block_shape or not all(block_shape) else
++                            f",block_shape={block_shape}").replace(" ", "")
++    gfx906_names = [ "Instinct_MI50", "Instinct_MI60", "Radeon_Pro_VII", "Radeon_VII", "Vega_20" ]
++    if any(s in device_name for s in gfx906_names):
++        device_name = "AMD_GFX906"
+     return f"E={E},N={N},device_name={device_name}{dtype_selector}{block_shape_selector}.json"  # noqa: E501
+ 
+ 
+@@ -953,10 +955,18 @@ def get_moe_wna16_block_config(
+     if not use_moe_wna16_cuda:
+         # triton moe wna16 kernel
+         if num_valid_tokens // real_top_k == 1:
+-            # if bs=1, use a smaller BLOCK_SIZE_N
+-            return {"BLOCK_SIZE_N": 32, "BLOCK_SIZE_K": 64}
++            block_size_n = 32
++            block_size_k = 64
+         else:
+-            return {"BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32}
++            block_size_n = 64
++            block_size_k = 32
++        while block_size_k > 16 and size_k % block_size_k != 0:
++            block_size_k //= 2
++        if size_k % block_size_k != 0:
++            block_size_k = 1 << (size_k.bit_length() - 1)
++            while block_size_k > size_k or size_k % block_size_k != 0:
++                block_size_k //= 2
++        return {"BLOCK_SIZE_N": block_size_n, "BLOCK_SIZE_K": block_size_k}
+     else:
+         # cuda moe wna16 kernel
+         # set default block_size 128, and increase them when num_blocks
+@@ -1007,15 +1017,10 @@ def get_moe_wna16_block_config(
+         return {"BLOCK_SIZE_N": block_size_n, "BLOCK_SIZE_K": block_size_k}
+ 
+ 
+-def should_moe_wna16_use_cuda(
+-    num_valid_tokens: int, group_size: int, num_experts: int, bit: int
+-):
+-    return (
+-        current_platform.is_cuda()
+-        and bit == 4
+-        and group_size in [32, 64, 128]
+-        and num_valid_tokens / num_experts <= 6
+-    )
++def should_moe_wna16_use_cuda(num_valid_tokens: int, group_size: int,
++                              num_experts: int, bit: int):
++    return current_platform.is_cuda_alike() and bit == 4 and \
++        group_size in [32, 64, 128] and num_valid_tokens / num_experts <= 6
+ 
+ 
+ def get_default_config(
+diff --git a/vllm/model_executor/layers/quantization/awq.py b/vllm/model_executor/layers/quantization/awq.py
+index ab68c5dca..8d58e7e84 100644
+--- a/vllm/model_executor/layers/quantization/awq.py
++++ b/vllm/model_executor/layers/quantization/awq.py
+@@ -18,6 +18,7 @@ from vllm.model_executor.layers.quantization.base_config import (
+     QuantizationConfig,
+     QuantizeMethodBase,
+ )
++from vllm.model_executor.layers.quantization.utils import replace_parameter
+ from vllm.model_executor.layers.quantization.utils.quant_utils import is_layer_skipped
+ from vllm.model_executor.parameter import GroupQuantScaleParameter, PackedvLLMParameter
+ from vllm.transformers_utils.config import get_safetensors_params_metadata
+@@ -71,8 +72,7 @@ class AWQConfig(QuantizationConfig):
+ 
+     @classmethod
+     def get_min_capability(cls) -> int:
+-        # The AWQ kernel only supports Turing or newer GPUs.
+-        return 75
++        return 60
+ 
+     @staticmethod
+     def get_config_filenames() -> list[str]:
+@@ -103,29 +103,14 @@ class AWQConfig(QuantizationConfig):
+                 skip_with_substr=True,
+             ):
+                 return UnquantizedLinearMethod()
++            logger.warning_once(
++                "[vllm-gfx906] You are using AWQ with exllama kernel, "
++                "this is differ from the offical vLLM.")
+             return AWQLinearMethod(self)
+         elif isinstance(layer, FusedMoE):
+             # Lazy import to avoid circular import.
+-            from .awq_marlin import AWQMarlinConfig, AWQMarlinMoEMethod
+             from .moe_wna16 import MoeWNA16Config
+-            from .utils.marlin_utils import check_moe_marlin_supports_layer
+-
+-            if not check_moe_marlin_supports_layer(layer, self.group_size):
+-                logger.warning_once(
+-                    f"Layer '{prefix}' is not supported by AWQMoeMarlin. "
+-                    "Falling back to Moe WNA16 kernels."
+-                )
+-                config = {
+-                    "quant_method": "awq",
+-                    "bits": self.weight_bits,
+-                    "group_size": self.group_size,
+-                    "zero_point": self.zero_point,
+-                    "lm_head": False,
+-                }
+-                return MoeWNA16Config.from_config(config).get_quant_method(
+-                    layer, prefix
+-                )
+-            marlin_compatible_config_dict = {
++            config = {
+                 "quant_method": "awq",
+                 "bits": self.weight_bits,
+                 "group_size": self.group_size,
+@@ -133,10 +118,11 @@ class AWQConfig(QuantizationConfig):
+                 "lm_head": False,
+                 "modules_to_not_convert": self.modules_to_not_convert,
+             }
+-            awq_marlin_config = AWQMarlinConfig.from_config(
+-                marlin_compatible_config_dict
+-            )
+-            return AWQMarlinMoEMethod(awq_marlin_config, layer.moe_config)
++            logger.warning_once(
++                "[vllm-gfx906] You are using modified MoeWNA16 kernel, "
++                "this is differ from the offical vLLM.")
++            return MoeWNA16Config.from_config(config).get_quant_method(
++                layer, prefix)
+         return None
+ 
+     def apply_vllm_mapper(self, hf_to_vllm_mapper: "WeightsMapper"):
+@@ -239,8 +225,7 @@ class AWQLinearMethod(LinearMethodBase):
+             ),
+             input_dim=0,
+             output_dim=1,
+-            weight_loader=weight_loader,
+-        )
++            weight_loader=weight_loader)
+ 
+         layer.register_parameter("qweight", qweight)
+         layer.register_parameter("qzeros", qzeros)
+@@ -251,27 +236,31 @@ class AWQLinearMethod(LinearMethodBase):
+         layer.qzeros = torch.nn.Parameter(layer.qzeros.data, requires_grad=False)
+         layer.scales = torch.nn.Parameter(layer.scales.data, requires_grad=False)
+ 
+-    def apply(
+-        self,
+-        layer: torch.nn.Module,
+-        x: torch.Tensor,
+-        bias: torch.Tensor | None = None,
+-    ) -> torch.Tensor:
+-        qweight = layer.qweight
+-        scales = layer.scales
+-        qzeros = layer.qzeros
+-        pack_factor = self.quant_config.pack_factor
+-        out_shape = x.shape[:-1] + (qweight.shape[-1] * pack_factor,)
+-        reshaped_x = x.reshape(-1, x.shape[-1])
++        bits = self.quant_config.weight_bits
++        empty = torch.empty(0, device=layer.qzeros.device)
+ 
+-        # num_tokens >= threshold
+-        FP16_MATMUL_HEURISTIC_CONDITION = x.shape[:-1].numel() >= 256
++        # hints: shuffle twice is equal to unshuffle once
++        ops.gptq_shuffle(layer.qzeros, empty, bits)
++        ops.gptq_shuffle(layer.qzeros, empty, bits)
+ 
+-        if FP16_MATMUL_HEURISTIC_CONDITION:
+-            out = ops.awq_dequantize(qweight, scales, qzeros, 0, 0, 0)
+-            out = torch.matmul(reshaped_x, out)
+-        else:
+-            out = ops.awq_gemm(reshaped_x, qweight, scales, qzeros, pack_factor)
++        ops.gptq_shuffle_awq_qweight(layer.qweight, bits)
++        layer.qweight.data = layer.qweight.reshape((layer.qweight.shape[0] // 8,
++                                                    layer.qweight.shape[1] * 8))
++        replace_parameter(layer, "qweight", layer.qweight.data)
++
++
++    def apply(self,
++              layer: torch.nn.Module,
++              x: torch.Tensor,
++              bias: torch.Tensor | None = None) -> torch.Tensor:
++        out_shape = x.shape[:-1] + (layer.qweight.shape[-1], )
++        reshaped_x = x.reshape(-1, x.shape[-1])
++
++        output = ops.gptq_gemm(
++            reshaped_x, layer.qweight, layer.qzeros, layer.scales,
++            torch.empty(0, device=layer.qweight.device),
++            True, True, self.quant_config.weight_bits
++        )
+         if bias is not None:
+-            out.add_(bias)
+-        return out.reshape(out_shape)
++            output.add_(bias)
++        return output.reshape(out_shape)
+diff --git a/vllm/model_executor/layers/quantization/compressed_tensors/compressed_tensors_moe.py b/vllm/model_executor/layers/quantization/compressed_tensors/compressed_tensors_moe.py
+index 18c2ab026..876e4ea98 100644
+--- a/vllm/model_executor/layers/quantization/compressed_tensors/compressed_tensors_moe.py
++++ b/vllm/model_executor/layers/quantization/compressed_tensors/compressed_tensors_moe.py
+@@ -194,6 +194,8 @@ class CompressedTensorsMoEMethod(FusedMoEMethodBase):
+                 return CompressedTensorsWNA16MarlinMoEMethod(
+                     weight_quant, input_quant, layer.moe_config
+                 )
++            logger.info_once("Using CompressedTensorsWNA16MoEMethod")
++            return CompressedTensorsWNA16MoEMethod(quant_config, layer.moe_config)
+         elif quant_config._is_fp4a4_nvfp4(weight_quant, input_quant):
+             return CompressedTensorsW4A4Nvfp4MoEMethod(layer.moe_config, layer_name)
+         elif (
+diff --git a/vllm/model_executor/layers/quantization/gptq.py b/vllm/model_executor/layers/quantization/gptq.py
+index 2ad28048c..5c9c5e512 100644
+--- a/vllm/model_executor/layers/quantization/gptq.py
++++ b/vllm/model_executor/layers/quantization/gptq.py
+@@ -14,6 +14,7 @@ from vllm import _custom_ops as ops
+ from vllm.logger import init_logger
+ from vllm.model_executor.layers.fused_moe.layer import FusedMoE
+ from vllm.model_executor.layers.linear import LinearMethodBase
++from vllm.model_executor.layers.quantization import QuantizationMethods
+ from vllm.model_executor.layers.quantization.base_config import (
+     QuantizationConfig,
+     QuantizeMethodBase,
+@@ -93,13 +94,15 @@ class GPTQConfig(QuantizationConfig):
+                 "Currently, only 2/3/4/8-bit weight quantization is "
+                 f"supported for GPTQ, but got {self.weight_bits} bits."
+             )
++
++        # gfx906: this issue was fixed in vllm-gfx906
+         # Somehow gptq_gemm 4-bit is buggy, maybe fix it in the future.
+         # For now, show a warning, since gptq_marlin will be used by default.
+-        if self.weight_bits == 4:
+-            logger.warning_once(
+-                "Currently, the 4-bit gptq_gemm kernel for GPTQ is buggy. "
+-                "Please switch to gptq_marlin or gptq_bitblas."
+-            )
++        # if self.weight_bits == 4:
++        #     logger.warning_once(
++        #         "Currently, the 4-bit gptq_gemm kernel for GPTQ is buggy. "
++        #         "Please switch to gptq_marlin or gptq_bitblas."
++        #     )
+ 
+         self.modules_in_block_to_quantize = modules_in_block_to_quantize or []
+ 
+@@ -275,6 +278,11 @@ class GPTQLinearMethod(LinearMethodBase):
+             # For act-order models, we cannot use Exllama for row parallel layer
+             if self.quant_config.desc_act:
+                 exllama_state = ExllamaState.UNUSED
++                logger.warning_once(
++                    "[vllm-gfx906] You are using tensor parallel with a "
++                    "desc_act GPTQ model. vLLM will use an alternative kernel "
++                    "to handle and this could be very slow. Strongly recommend"
++                    " to use pipeline parallel instead.")
+             else:
+                 # we need to partition qzeros and scales for exllama kernel
+                 scale_and_zero_size = input_size_per_partition // group_size
+diff --git a/vllm/model_executor/layers/quantization/kernels/mixed_precision/__init__.py b/vllm/model_executor/layers/quantization/kernels/mixed_precision/__init__.py
+index c4160157c..b647cc78b 100644
+--- a/vllm/model_executor/layers/quantization/kernels/mixed_precision/__init__.py
++++ b/vllm/model_executor/layers/quantization/kernels/mixed_precision/__init__.py
+@@ -37,13 +37,13 @@ from vllm.platforms import current_platform
+ 
+ # in priority/performance order (when available)
+ _POSSIBLE_KERNELS: list[type[MPLinearKernel]] = [
+-    CutlassW4A8LinearKernel,
+-    MacheteLinearKernel,
+-    AllSparkLinearKernel,
+-    MarlinLinearKernel,
+-    Dynamic4bitLinearKernel,
+-    BitBLASLinearKernel,
+-    ConchLinearKernel,
++    #CutlassW4A8LinearKernel,
++    #MacheteLinearKernel,
++    #AllSparkLinearKernel,
++    #MarlinLinearKernel,
++    #Dynamic4bitLinearKernel,
++    #BitBLASLinearKernel,
++    #ConchLinearKernel,
+     ExllamaLinearKernel,
+     XPUwNa16LinearKernel,
+ ]
+diff --git a/vllm/model_executor/layers/quantization/kernels/mixed_precision/exllama.py b/vllm/model_executor/layers/quantization/kernels/mixed_precision/exllama.py
+index 9fba4aafb..3dfddf0d9 100644
+--- a/vllm/model_executor/layers/quantization/kernels/mixed_precision/exllama.py
++++ b/vllm/model_executor/layers/quantization/kernels/mixed_precision/exllama.py
+@@ -15,7 +15,7 @@ from .MPLinearKernel import MPLinearKernel, MPLinearLayerConfig
+ 
+ 
+ class ExllamaLinearKernel(MPLinearKernel):
+-    SUPPORTED_QUANT_TYPES = [scalar_types.uint4b8, scalar_types.uint8b128]
++    SUPPORTED_QUANT_TYPES = [scalar_types.uint4b8, scalar_types.uint8b128, scalar_types.uint4]
+     # In theory supports `scalar_types.uint2b2, scalar_types.uint3b4` too but
+     # currently untested so not added to the list
+ 
+@@ -64,41 +64,32 @@ class ExllamaLinearKernel(MPLinearKernel):
+ 
+     def process_weights_after_loading(self, layer: torch.nn.Module):
+         c = self.config
++        device = getattr(layer, self.w_q_name).device
+ 
+-        # For Exllama, we need to set a zero-point tensor if there is not one
+-        if not c.zero_points:
++        if c.zero_points:
++            def transform_w_zp(x):
++                permute_param_layout_(x, input_dim=0, output_dim=1)
++                return x.data.contiguous()
++            self._transform_param(layer, self.w_zp_name, transform_w_zp)
++        else:
++            # For Exllama, we need to set a zero-point tensor if there is not one
+             self.w_zp_name = "qzeros"
+-            device = getattr(layer, self.w_q_name).device
++            assert c.weight_type.has_bias()
+             groups = c.partition_weight_shape[0] // c.group_size
+             out_features = c.partition_weight_shape[1]
+-
+-            if c.weight_type.has_bias():
+-                # if the type has a bias we have to create a zeros tensor that
+-                # contains the bias values repeated for each group (-1 due to
+-                # a bug in the original GPTQ checkpoint format leading to
+-                # exllama kernel adding 1 to the zero points during inference)
+-                # Documentation of the bug can be found here:
+-                #  https://garden.danieldk.eu/GPTQ-Checkpoint-Format
+-                zeros = torch.full(
+-                    (groups, out_features),
+-                    c.weight_type.bias - 1,
+-                    dtype=torch.int32,
+-                    device=device,
+-                )
+-            else:
+-                raise NotImplementedError(
+-                    "A 0 zero-point is not supported by Exllama due to "
+-                    "a bug in the original GPTQ checkpoint format leading to "
+-                    "exllama kernel adding 1 to the zero points during "
+-                    "inference"
+-                )
+-            zeros = pack_quantized_values_into_int32(zeros, c.weight_type, packed_dim=1)
+-            setattr(
+-                layer, self.w_zp_name, torch.nn.Parameter(zeros, requires_grad=False)
+-            )
++            # gfx906: We will pass use_v2_format=True to gptq_gemm,
++            # no need to subtract 1 here
++            zeros = torch.full((groups, out_features),
++                                c.weight_type.bias,
++                                dtype=torch.int32,
++                                device=device)
++            zeros = pack_quantized_values_into_int32(zeros,
++                                                     c.weight_type,
++                                                     packed_dim=1)
++            setattr(layer, self.w_zp_name,
++                    torch.nn.Parameter(zeros, requires_grad=False))
+ 
+         if c.has_g_idx:
+-
+             def transform_w_g_idx(x):
+                 # Exllama wants the permutation array instead of the group
+                 # indices
+@@ -145,16 +136,14 @@ class ExllamaLinearKernel(MPLinearKernel):
+ 
+         w_q, w_s, w_zp, w_g_idx = self._get_weight_params(layer)
+ 
+-        # gptq_gemm supports GPTQv2 format by passing use_v2_format=True.
+-        # However, the MPLinearLayerConfig doesn't contain format info.
+-        # So hardcode GPTQv1 format here, to keep its behavior unchanged.
+-        use_v2_format = False
++        # gfx906: see comment above
++        use_v2_format = True
+ 
+         assert w_zp is not None, "Zero points are required by Exllama"
+         assert w_g_idx is not None, "Group index is required by Exllama"
+-        output = ops.gptq_gemm(
+-            x_2d, w_q, w_zp, w_s, w_g_idx, True, use_v2_format, c.weight_type.size_bits
+-        )
++
++        output = ops.gptq_gemm(x_2d, w_q, w_zp, w_s, w_g_idx, True,
++                               use_v2_format, c.weight_type.size_bits)
+ 
+         if bias is not None:
+             output.add_(bias)
+diff --git a/vllm/model_executor/layers/utils.py b/vllm/model_executor/layers/utils.py
+index 4b7ba2eed..f40f79eb2 100644
+--- a/vllm/model_executor/layers/utils.py
++++ b/vllm/model_executor/layers/utils.py
+@@ -5,6 +5,8 @@
+ from collections.abc import Callable
+ 
+ import torch
++import triton
++import triton.language as tl
+ 
+ from vllm import _custom_ops as ops
+ from vllm import envs
+@@ -38,6 +40,117 @@ def shuffle_weight(w: torch.Tensor) -> torch.Tensor:
+     return w_shuffled
+ 
+ 
++def get_autotune_config():
++    return [
++        triton.Config({'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 64, 'GROUP_SIZE_M': 1}, num_stages=3, num_warps=2),
++    ]
++
++def get_heuristics():
++    return {
++        'BLOCK_SIZE_M': lambda args: min(16, triton.next_power_of_2(args['M']))
++    }
++
++# `triton.jit`'ed functions can be auto-tuned by using the `triton.autotune` decorator, which consumes:
++#   - A list of `triton.Config` objects that define different configurations of
++#       meta-parameters (e.g., `BLOCK_SIZE_M`) and compilation options (e.g., `num_warps`) to try
++#   - An auto-tuning *key* whose change in values will trigger evaluation of all the
++#       provided configs
++@triton.autotune(
++    configs=get_autotune_config(),
++    key=['M', 'N', 'K']
++)
++@triton.heuristics(values=get_heuristics())
++@triton.jit
++def triton_matmul_kernel(
++        # Pointers to matrices
++        a_ptr, b_ptr, c_ptr,
++        # Matrix dimensions
++        M, N, K,
++        # The stride variables represent how much to increase the ptr by when moving by 1
++        # element in a particular dimension. E.g. `stride_am` is how much to increase `a_ptr`
++        # by to get the element one row down (A has M rows).
++        stride_am, stride_ak,  #
++        stride_bk, stride_bn,  #
++        stride_cm, stride_cn,
++        # Meta-parameters
++        BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,  #
++        GROUP_SIZE_M: tl.constexpr  #
++):
++    """Kernel for computing the matmul C = A x B.
++    A has shape (M, K), B has shape (K, N) and C has shape (M, N)
++    """
++    # -----------------------------------------------------------
++    # Map program ids `pid` to the block of C it should compute.
++    # This is done in a grouped ordering to promote L2 data reuse.
++    # See above `L2 Cache Optimizations` section for details.
++    pid = tl.program_id(axis=0)
++    num_pid_m = tl.cdiv(M, BLOCK_SIZE_M)
++    num_pid_n = tl.cdiv(N, BLOCK_SIZE_N)
++    num_pid_in_group = GROUP_SIZE_M * num_pid_n
++    group_id = pid // num_pid_in_group
++    first_pid_m = group_id * GROUP_SIZE_M
++    group_size_m = min(num_pid_m - first_pid_m, GROUP_SIZE_M)
++    pid_m = first_pid_m + ((pid % num_pid_in_group) % group_size_m)
++    pid_n = (pid % num_pid_in_group) // group_size_m
++
++    # ----------------------------------------------------------
++    # Create pointers for the first blocks of A and B.
++    # We will advance this pointer as we move in the K direction
++    # and accumulate
++    # `a_ptrs` is a block of [BLOCK_SIZE_M, BLOCK_SIZE_K] pointers
++    # `b_ptrs` is a block of [BLOCK_SIZE_K, BLOCK_SIZE_N] pointers
++    # See above `Pointer Arithmetic` section for details
++    offs_am = (pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)) % M
++    offs_bn = (pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)) % N
++    offs_k = tl.arange(0, BLOCK_SIZE_K)
++    a_ptrs = a_ptr + (offs_am[:, None] * stride_am + offs_k[None, :] * stride_ak)
++    b_ptrs = b_ptr + (offs_k[:, None] * stride_bk + offs_bn[None, :] * stride_bn)
++
++    # -----------------------------------------------------------
++    # Iterate to compute a block of the C matrix.
++    # We accumulate into a `[BLOCK_SIZE_M, BLOCK_SIZE_N]` block
++    # of fp32 values for higher accuracy.
++    # `accumulator` will be converted back to fp16 after the loop.
++    accumulator = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
++    for k in range(0, tl.cdiv(K, BLOCK_SIZE_K)):
++        # Load the next block of A and B, generate a mask by checking the K dimension.
++        # If it is out of bounds, set it to 0.
++        a = tl.load(a_ptrs, mask=offs_k[None, :] < K - k * BLOCK_SIZE_K, other=0.0)
++        b = tl.load(b_ptrs, mask=offs_k[:, None] < K - k * BLOCK_SIZE_K, other=0.0)
++        # We accumulate along the K dimension.
++        accumulator = tl.dot(a, b, accumulator)
++        # Advance the ptrs to the next K block.
++        a_ptrs += BLOCK_SIZE_K * stride_ak
++        b_ptrs += BLOCK_SIZE_K * stride_bk
++    c = accumulator.to(tl.float16)
++
++    # -----------------------------------------------------------
++    # Write back the block of the output matrix C with masks.
++    offs_cm = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
++    offs_cn = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
++    c_ptrs = c_ptr + stride_cm * offs_cm[:, None] + stride_cn * offs_cn[None, :]
++    c_mask = (offs_cm[:, None] < M) & (offs_cn[None, :] < N)
++    tl.store(c_ptrs, c, mask=c_mask)
++
++def triton_matmul(a, b):
++    # Check constraints.
++    assert a.shape[1] == b.shape[1], "Incompatible dimensions" # NOTE(gfx906): b.shape inv
++    assert a.is_contiguous(), "Matrix A must be contiguous"
++    M, K = a.shape
++    N, K = b.shape # NOTE(gfx906): b.shape inv
++    # Allocates output.
++    c = torch.empty((M, N), device=a.device, dtype=torch.float16)
++    # 1D launch kernel where each block gets its own program.
++    grid = lambda META: (triton.cdiv(M, META['BLOCK_SIZE_M']) * triton.cdiv(N, META['BLOCK_SIZE_N']), )
++    triton_matmul_kernel[grid](
++        a, b, c,  #
++        M, N, K,  #
++        a.stride(0), a.stride(1),  #
++        b.stride(1), b.stride(0),  # NOTE(gfx906): b.stride inv
++        c.stride(0), c.stride(1),  #
++    )
++    return c
++
+ def get_token_bin_counts_and_mask(
+     tokens: torch.Tensor,
+     vocab_size: int,
+@@ -127,37 +240,29 @@ def use_aiter_triton_gemm(n, m, k, dtype):
+ 
+ 
+ def rocm_unquantized_gemm_impl(
+-    x: torch.Tensor, weight: torch.Tensor, bias: torch.Tensor | None = None
+-) -> torch.Tensor:
+-    from vllm.platforms.rocm import on_gfx9
++        x: torch.Tensor,
++        weight: torch.Tensor,
++        bias: torch.Tensor | None = None) -> torch.Tensor:
++    use_skinny = (x.dtype in [torch.float16, torch.bfloat16] \
++                  and bias is None)
++    if use_skinny is not True:
++        return torch.nn.functional.linear(x, weight, bias)
+ 
+-    n = x.numel() / x.size(-1)
++    x_view = x.reshape(-1, x.size(-1))
++    n = x_view.shape[0]
+     m = weight.shape[0]
+     k = weight.shape[1]
+ 
+-    if use_aiter_triton_gemm(n, m, k, x.dtype):
+-        from aiter.ops.triton.gemm_a16w16 import gemm_a16w16
++    # prefer skinny GEMV kernel
++    if m % 4 == 0 and n == 1 and k <= 8192 and k % 8 == 0:
++        out = ops.LLMM1(weight, x_view, 4)
++        return out.view(*x.shape[:-1], weight.shape[0])
+ 
+-        return gemm_a16w16(x, weight, bias)
++    # low batch size, use triton matmul
++    if n <= 16:
++        return triton_matmul(x, weight)
+ 
+-    use_skinny = (
+-        envs.VLLM_ROCM_USE_SKINNY_GEMM
+-        and on_gfx9()
+-        and x.dtype in [torch.float16, torch.bfloat16]
+-        and k % 8 == 0
+-    )
+-
+-    if use_skinny is not True:
+-        return torch.nn.functional.linear(x, weight, bias)
+-
+-    x_view = x.reshape(-1, x.size(-1))
+-    if m > 8 and 0 < n <= 4:
+-        cu_count = get_cu_count()
+-        out = ops.wvSplitK(weight, x_view, cu_count, bias)
+-        return out.reshape(*x.shape[:-1], weight.shape[0])
+-    elif m % 4 == 0 and n == 1 and k <= 8192 and bias is None:
+-        out = ops.LLMM1(weight, x_view, 4)
+-        return out.reshape(*x.shape[:-1], weight.shape[0])
++    # otherwise, use native torch
+     return torch.nn.functional.linear(x, weight, bias)
+ 
+ 
+diff --git a/vllm/model_executor/models/glm4.py b/vllm/model_executor/models/glm4.py
+index 2cd11e66c..d4d328cab 100644
+--- a/vllm/model_executor/models/glm4.py
++++ b/vllm/model_executor/models/glm4.py
+@@ -228,10 +228,6 @@ class Glm4ForCausalLM(nn.Module, SupportsLoRA, SupportsPP):
+             "k_proj",
+             "v_proj",
+         ],
+-        "gate_up_proj": [
+-            "gate_proj",
+-            "up_proj",
+-        ],
+     }
+ 
+     def __init__(self, *, vllm_config: VllmConfig, prefix: str = ""):
+diff --git a/vllm/platforms/__init__.py b/vllm/platforms/__init__.py
+index a45ca9882..a962715f9 100644
+--- a/vllm/platforms/__init__.py
++++ b/vllm/platforms/__init__.py
+@@ -180,11 +180,11 @@ def cpu_platform_plugin() -> str | None:
+ 
+ 
+ builtin_platform_plugins = {
+-    "tpu": tpu_platform_plugin,
+-    "cuda": cuda_platform_plugin,
+-    "rocm": rocm_platform_plugin,
+-    "xpu": xpu_platform_plugin,
+-    "cpu": cpu_platform_plugin,
++    #'tpu': tpu_platform_plugin,
++    #'cuda': cuda_platform_plugin,
++    'rocm': rocm_platform_plugin,
++    #'xpu': xpu_platform_plugin,
++    #'cpu': cpu_platform_plugin,
+ }
+ 
+ 
+diff --git a/vllm/platforms/rocm.py b/vllm/platforms/rocm.py
+index e469a928d..7c656c0f6 100644
+--- a/vllm/platforms/rocm.py
++++ b/vllm/platforms/rocm.py
+@@ -105,6 +105,10 @@ def on_gfx9() -> bool:
+     GPU_ARCH = torch.cuda.get_device_properties("cuda").gcnArchName
+     return any(arch in GPU_ARCH for arch in ["gfx90a", "gfx942", "gfx950"])
+ 
++@cache
++def on_gfx906() -> bool:
++    GPU_ARCH = torch.cuda.get_device_properties("cuda").gcnArchName
++    return any(arch in GPU_ARCH for arch in ["gfx906"])
+ 
+ @cache
+ def on_gfx950() -> bool:
+@@ -188,6 +192,11 @@ class RocmPlatform(Platform):
+     if not on_gfx9():
+         supported_quantization += ["bitsandbytes"]
+ 
++    @property
++    def supported_dtypes(self) -> list[torch.dtype]:
++        # no bfloat16 for gfx906
++        return [torch.float16, torch.float32]
++
+     @classmethod
+     def get_attn_backend_cls(
+         cls,
+@@ -332,7 +341,7 @@ class RocmPlatform(Platform):
+             # TODO: Add support for other VL models in their model class.
+             return AttentionBackendEnum.ROCM_AITER_FA
+ 
+-        if on_gfx9() and find_spec("flash_attn") is not None:
++        if (on_gfx9() or on_gfx906()) and find_spec("flash_attn") is not None:
+             return AttentionBackendEnum.FLASH_ATTN
+ 
+         return AttentionBackendEnum.TORCH_SDPA
+@@ -465,12 +474,6 @@ class RocmPlatform(Platform):
+     @classmethod
+     def verify_quantization(cls, quant: str) -> None:
+         super().verify_quantization(quant)
+-        if quant == "awq" and not envs.VLLM_USE_TRITON_AWQ:
+-            logger.warning(
+-                "Using AWQ quantization with ROCm, but VLLM_USE_TRITON_AWQ"
+-                " is not set, enabling VLLM_USE_TRITON_AWQ."
+-            )
+-        os.environ["VLLM_USE_TRITON_AWQ"] = "1"
+ 
+     @classmethod
+     def get_punica_wrapper(cls) -> str:
+diff --git a/vllm/v1/attention/backends/rocm_aiter_fa.py b/vllm/v1/attention/backends/rocm_aiter_fa.py
+index b6aa0ae2b..ee57048ea 100644
+--- a/vllm/v1/attention/backends/rocm_aiter_fa.py
++++ b/vllm/v1/attention/backends/rocm_aiter_fa.py
+@@ -32,8 +32,6 @@ _PARTITION_SIZE_ROCM = 256
+ _CP_TOKENS_PER_ITER_ROCM = 32 * 1024
+ 
+ if current_platform.is_rocm():
+-    import aiter
+-
+     from vllm.triton_utils import tl, triton
+ 
+     def block_size(x, head_dim):
+@@ -123,6 +121,7 @@ if current_platform.is_rocm():
+         kv_cache_layout: str,
+         total_tokens: int,
+     ):
++        import aiter
+         assert kv_cache_layout in ["v0", "NHD", "HND"], (
+             "kv_cache_layout only support v0, NHD, HND"
+         )
