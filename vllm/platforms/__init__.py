@@ -132,22 +132,17 @@ def xpu_platform_plugin() -> str | None:
     is_xpu = False
     logger.debug("Checking if XPU platform is available.")
     try:
-        # installed IPEX if the machine has XPUs.
-        import intel_extension_for_pytorch  # noqa: F401
         import torch
 
         if supports_xccl():
             dist_backend = "xccl"
-        else:
-            dist_backend = "ccl"
-            import oneccl_bindings_for_pytorch  # noqa: F401
-
-        if hasattr(torch, "xpu") and torch.xpu.is_available():
-            is_xpu = True
             from vllm.platforms.xpu import XPUPlatform
 
             XPUPlatform.dist_backend = dist_backend
             logger.debug("Confirmed %s backend is available.", XPUPlatform.dist_backend)
+
+        if hasattr(torch, "xpu") and torch.xpu.is_available():
+            is_xpu = True
             logger.debug("Confirmed XPU platform is available.")
     except Exception as e:
         logger.debug("XPU platform is not available because: %s", str(e))
@@ -180,11 +175,11 @@ def cpu_platform_plugin() -> str | None:
 
 
 builtin_platform_plugins = {
-    #'tpu': tpu_platform_plugin,
-    #'cuda': cuda_platform_plugin,
-    'rocm': rocm_platform_plugin,
-    #'xpu': xpu_platform_plugin,
-    #'cpu': cpu_platform_plugin,
+    "tpu": tpu_platform_plugin,
+    "cuda": cuda_platform_plugin,
+    "rocm": rocm_platform_plugin,
+    "xpu": xpu_platform_plugin,
+    "cpu": cpu_platform_plugin,
 }
 
 

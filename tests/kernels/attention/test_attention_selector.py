@@ -6,11 +6,13 @@ from unittest.mock import patch
 import pytest
 import torch
 
-from vllm.attention.selector import _cached_get_attn_backend, get_attn_backend
+from vllm.config import AttentionConfig, VllmConfig, set_current_vllm_config
 from vllm.platforms import current_platform
 from vllm.platforms.cpu import CpuPlatform
 from vllm.platforms.cuda import CudaPlatform
 from vllm.platforms.rocm import RocmPlatform
+from vllm.v1.attention.backends.registry import AttentionBackendEnum
+from vllm.v1.attention.selector import _cached_get_attn_backend, get_attn_backend
 
 
 @pytest.fixture(autouse=True)
@@ -73,18 +75,18 @@ def generate_params():
 
 
 @pytest.mark.parametrize("device, name, use_mla, block_size", generate_params())
-def test_env(
+def test_backend_selection(
     device: str,
     name: str,
     use_mla: bool,
     block_size: int,
-    monkeypatch: pytest.MonkeyPatch,
 ):
     """Test attention backend selection with valid device-backend pairs."""
-    with monkeypatch.context() as m:
-        m.setenv("VLLM_ATTENTION_BACKEND", name)
-        m.setenv("VLLM_MLA_DISABLE", "1" if use_mla else "0")
+    # Create AttentionConfig with the specified backend
+    attention_config = AttentionConfig(backend=AttentionBackendEnum[name])
+    vllm_config = VllmConfig(attention_config=attention_config)
 
+    with set_current_vllm_config(vllm_config):
         if device == "cpu":
             with patch("vllm.platforms.current_platform", CpuPlatform()):
                 backend = get_attn_backend(16, torch.float16, None, block_size)
@@ -180,7 +182,7 @@ def test_env(
                         expected = name
                         assert backend.get_name() == expected
                     elif name == "FLASH_ATTN_MLA":
-                        from vllm.attention.utils.fa_utils import (
+                        from vllm.v1.attention.backends.fa_utils import (
                             flash_attn_supports_mla,
                         )
 
@@ -217,27 +219,32 @@ def test_env(
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
 def test_fp32_fallback(device: str):
     """Test attention backend selection with fp32."""
-    if device == "cpu":
-        with patch("vllm.platforms.current_platform", CpuPlatform()):
-            backend = get_attn_backend(16, torch.float32, None, 16)
-        assert backend.get_name() == "CPU_ATTN"
+    # Use default config (no backend specified)
+    vllm_config = VllmConfig()
 
-    elif device == "cuda":
-        with patch("vllm.platforms.current_platform", CudaPlatform()):
-            backend = get_attn_backend(16, torch.float32, None, 16)
-        assert backend.get_name() == "FLEX_ATTENTION"
+    with set_current_vllm_config(vllm_config):
+        if device == "cpu":
+            with patch("vllm.platforms.current_platform", CpuPlatform()):
+                backend = get_attn_backend(16, torch.float32, None, 16)
+            assert backend.get_name() == "CPU_ATTN"
+
+        elif device == "cuda":
+            with patch("vllm.platforms.current_platform", CudaPlatform()):
+                backend = get_attn_backend(16, torch.float32, None, 16)
+            assert backend.get_name() == "FLEX_ATTENTION"
 
 
 def test_flash_attn(monkeypatch: pytest.MonkeyPatch):
     """Test FlashAttn validation."""
     pytest.skip(
         "Skipping as current backend selector does not "
-        "handle fallbacks when a backend is set via env var."
+        "handle fallbacks when a backend is explicitly set."
     )
 
-    with monkeypatch.context() as m:
-        m.setenv("VLLM_ATTENTION_BACKEND", "FLASH_ATTN")
+    attention_config = AttentionConfig(backend=AttentionBackendEnum.FLASH_ATTN)
+    vllm_config = VllmConfig(attention_config=attention_config)
 
+    with set_current_vllm_config(vllm_config):
         # Unsupported CUDA arch
         monkeypatch.setattr(torch.cuda, "get_device_capability", lambda _=None: (7, 5))
         backend = get_attn_backend(16, torch.float16, None, 16)
@@ -277,15 +284,64 @@ def test_flash_attn(monkeypatch: pytest.MonkeyPatch):
         assert backend.get_name() != "FLASH_ATTN"
 
 
-def test_invalid_env(monkeypatch: pytest.MonkeyPatch):
+def test_invalid_backend():
     """Test that invalid attention backend names raise ValueError."""
     with (
-        monkeypatch.context() as m,
+        pytest.raises(ValueError),
+    ):
+        # Invalid backend name should raise ValueError when creating enum
+        AttentionConfig(backend=AttentionBackendEnum["INVALID"])
+
+
+@pytest.mark.parametrize(
+    "backend_name,flash_attn_version,should_succeed",
+    [
+        ("FLASH_ATTN", 3, True),  # FA3 supports per-head quant scales
+        ("FLASH_ATTN", 2, False),  # FA2 does not support per-head quant scales
+        ("FLASHINFER", None, False),  # FlashInfer does not support
+        ("FLEX_ATTENTION", None, False),  # Flex does not support
+    ],
+)
+def test_per_head_quant_scales_backend_selection(
+    backend_name: str, flash_attn_version: int | None, should_succeed: bool
+):
+    """Test backend selection when use_per_head_quant_scales=True."""
+    # Clear cache to ensure fresh backend selection
+    _cached_get_attn_backend.cache_clear()
+
+    attention_config = AttentionConfig(
+        backend=AttentionBackendEnum[backend_name],
+        flash_attn_version=flash_attn_version,
+    )
+    vllm_config = VllmConfig(attention_config=attention_config)
+
+    with (
+        set_current_vllm_config(vllm_config),
         patch("vllm.platforms.current_platform", CudaPlatform()),
     ):
-        m.setenv("VLLM_ATTENTION_BACKEND", "INVALID")
+        if backend_name == "FLASH_ATTN" and flash_attn_version == 3:
+            if not torch.cuda.is_available():
+                pytest.skip("FA3 requires CUDA")
+            capability = torch.cuda.get_device_capability()
+            if capability[0] != 9:
+                pytest.skip("FA3 is only supported on Hopper (SM 9.x) GPUs")
 
-        # Should raise ValueError for invalid backend
-        with pytest.raises(ValueError) as exc_info:
-            get_attn_backend(32, torch.float16, None, 16)
-        assert "Invalid value 'INVALID'" in str(exc_info.value)
+        if should_succeed:
+            backend = get_attn_backend(
+                head_size=128,
+                dtype=torch.float16,
+                kv_cache_dtype="fp8",
+                block_size=64,
+                use_per_head_quant_scales=True,
+            )
+            assert backend.get_name() == backend_name
+        else:
+            with pytest.raises(ValueError) as exc_info:
+                get_attn_backend(
+                    head_size=128,
+                    dtype=torch.float16,
+                    kv_cache_dtype="fp8",
+                    block_size=64,
+                    use_per_head_quant_scales=True,
+                )
+            assert backend_name in str(exc_info.value)

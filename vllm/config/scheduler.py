@@ -6,7 +6,6 @@ from dataclasses import InitVar
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 
 from pydantic import Field, field_validator
-from pydantic.dataclasses import dataclass
 from typing_extensions import Self
 
 from vllm.config.utils import config
@@ -24,9 +23,21 @@ SchedulerPolicy = Literal["fcfs", "priority"]
 
 
 @config
-@dataclass
 class SchedulerConfig:
     """Scheduler configuration."""
+
+    max_model_len: InitVar[int]
+    """Maximum length of a sequence (including prompt and generated text).
+
+    Note: This is stored in the ModelConfig, and is used only here to
+    provide fallbacks and validate other attributes."""
+
+    is_encoder_decoder: InitVar[bool]
+    """True if the model is an encoder-decoder model.
+
+    Note: This is stored in the ModelConfig, and is used only here to
+    disable chunked prefill and prefix caching for encoder-decoder models.
+    """
 
     DEFAULT_MAX_NUM_BATCHED_TOKENS: ClassVar[int] = 2048
     DEFAULT_MAX_NUM_SEQS: ClassVar[int] = 128
@@ -35,11 +46,18 @@ class SchedulerConfig:
     """The runner type to launch for the model."""
 
     max_num_batched_tokens: int = Field(default=DEFAULT_MAX_NUM_BATCHED_TOKENS, ge=1)
-    """Maximum number of tokens to be processed in a single iteration.
+    """Maximum number of tokens that can be processed in a single iteration.
 
     The default value here is mainly for convenience when testing.
     In real usage, this should be set in `EngineArgs.create_engine_config`.
     """
+
+    max_num_scheduled_tokens: int | None = Field(default=None)
+    """Maximum number of tokens that the scheduler may issue in a single iteration.
+    
+    This is usually equal to max_num_batched_tokens, but can be smaller in cases
+    when the model might append tokens into the batch (such as speculative decoding).
+    Defaults to max_num_batched_tokens."""
 
     max_num_seqs: int = Field(default=DEFAULT_MAX_NUM_SEQS, ge=1)
     """Maximum number of sequences to be processed in a single iteration.
@@ -73,19 +91,6 @@ class SchedulerConfig:
     is_multimodal_model: bool = False
     """True if the model is multimodal."""
 
-    max_model_len: InitVar[int] = 8192
-    """Maximum length of a sequence (including prompt and generated text).
-
-    Note: This is stored in the ModelConfig, and is used only here to
-    provide fallbacks and validate other attributes."""
-
-    is_encoder_decoder: InitVar[bool] = False
-    """True if the model is an encoder-decoder model.
-
-    Note: This is stored in the ModelConfig, and is used only here to
-    disable chunked prefill and prefix caching for encoder-decoder models.
-    """
-
     # TODO (ywang96): Make this configurable.
     max_num_encoder_input_tokens: int = Field(init=False)
     """Multimodal encoder compute budget, only used in V1.
@@ -117,22 +122,22 @@ class SchedulerConfig:
 
     # scheduler class or path. "vllm.v1.core.sched.scheduler.Scheduler"
     # (default) or "mod.custom_class".
-    scheduler_cls: str | type[object] = Field(default=None)
+    scheduler_cls: str | type[object] | None = Field(default=None)
     """The scheduler class to use. "vllm.v1.core.sched.scheduler.Scheduler" is
     the default scheduler. Can be a class directly or the path to a class of
     form "mod.custom_class"."""
 
-    disable_hybrid_kv_cache_manager: bool = False
+    disable_hybrid_kv_cache_manager: bool | None = None
     """If set to True, KV cache manager will allocate the same size of KV cache
     for all attention layers even if there are multiple type of attention layers
     like full attention and sliding window attention.
+    If set to None, the default value will be determined based on the environment
+    and starting configuration.
     """
 
-    async_scheduling: bool = False
-    """If set to True, perform async scheduling. This helps to avoid gaps in
-    GPU utilization, leading to better latency and throughput.
-    Async scheduling is currently not supported with some features such as
-    speculative decoding and pipeline parallelism.
+    async_scheduling: bool | None = Field(default=None)
+    """If set to False, disable async scheduling. Async scheduling helps to
+    avoid gaps in GPU utilization, leading to better latency and throughput.
     """
 
     stream_interval: int = Field(default=1, ge=1)
@@ -140,6 +145,17 @@ class SchedulerConfig:
     A smaller value (1) makes streaming smoother by sending each token immediately,
     while a larger value (e.g., 10) reduces host overhead and may increase throughput
     by batching multiple tokens before sending."""
+
+    @staticmethod
+    def default_factory(**kwargs):
+        """
+        Factory method to create `SchedulerConfig` with default values for `InitVar`s.
+        """
+        if "max_model_len" not in kwargs:
+            kwargs["max_model_len"] = 8192
+        if "is_encoder_decoder" not in kwargs:
+            kwargs["is_encoder_decoder"] = False
+        return SchedulerConfig(**kwargs)
 
     def get_scheduler_cls(self) -> type["SchedulerInterface"]:
         if self.scheduler_cls is None:
@@ -195,9 +211,7 @@ class SchedulerConfig:
     @classmethod
     def _skip_none_validation(cls, value: Any, handler: Callable) -> Any:
         """Skip validation if the value is `None` when initialisation is delayed."""
-        if value is None:
-            return value
-        return handler(value)
+        return None if value is None else handler(value)
 
     def __post_init__(self, max_model_len: int, is_encoder_decoder: bool) -> None:
         if is_encoder_decoder:
@@ -284,8 +298,3 @@ class SchedulerConfig:
             )
 
         return self
-
-    def __getattribute__(self, name: str) -> Any:
-        if name == "max_model_len" or name == "is_encoder_decoder":
-            raise AttributeError(f"{name} is an init-only parameter. ")
-        return object.__getattribute__(self, name)
