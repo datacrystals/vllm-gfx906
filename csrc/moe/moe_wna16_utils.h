@@ -40,61 +40,95 @@ class ScalarType<half> {
   }
 };
 
-template <>
-class ScalarType<nv_bfloat16> {
- public:
-  using scalar_t = nv_bfloat16;
-  using scalar_t2 = nv_bfloat162;
 
-#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
-  static __device__ float inline num2float(const nv_bfloat16 x) {
-    return __bfloat162float(x);
-  }
+__device__ __forceinline__ void atomicAdd_half(half* address, half val) {
+  unsigned int* address_as_ui =
+      (unsigned int*)((char*)address - ((size_t)address & 2));
+  unsigned int old = *address_as_ui;
+  unsigned int assumed;
 
-  static __device__ nv_bfloat162 inline num2num2(const nv_bfloat16 x) {
-    return __bfloat162bfloat162(x);
-  }
+  do {
+    assumed = old;
+    __half_raw hsum;
+    hsum.x = (size_t)address & 2 ? (old >> 16) : (old & 0xffff);
+    half tmpres = __hadd(hsum, val);
+    hsum = __half_raw(tmpres);
+    old = (size_t)address & 2 ? (old & 0xffff) | (hsum.x << 16)
+                              : (old & 0xffff0000) | hsum.x;
+    old = atomicCAS(address_as_ui, assumed, old);
+  } while (assumed != old);
+}
 
-  static __device__ nv_bfloat162 inline nums2num2(const nv_bfloat16 x1,
-                                                  const nv_bfloat16 x2) {
-    return __halves2bfloat162(x1, x2);
-  }
-
-  static __host__ __device__ nv_bfloat16 inline float2num(const float x) {
-    return __float2bfloat16(x);
-  }
-
-  static __host__ __device__ nv_bfloat16 inline int2num(const float x) {
-    return __int2bfloat16_rn(x);
-  }
-
-  static __host__ __device__ float2 inline num22float2(const nv_bfloat162 x) {
-    return __bfloat1622float2(x);
-  }
-
-  static __host__ __device__ nv_bfloat162 inline float22num2(const float2 x) {
-    return __float22bfloat162_rn(x);
-  }
+__device__ __forceinline__ uint32_t bfi(const uint32_t S0, const uint32_t S1,
+                                        const uint32_t S2) {
+#if defined(USE_ROCM)
+  uint32_t result;
+  __asm__ (
+    "  v_bfi_b32  %0, %1, %2, %3  \n"
+    : "=v" (result)
+    : "v"(S0), "v"(S1), "v"(S2)
+  );
+  return result;
+#else
+  return (S0 & S1) | (~S0 & S2);
 #endif
-};
-
-template <int lut>
-__device__ inline int lop3(int a, int b, int c) {
-  int res;
-  asm volatile("lop3.b32 %0, %1, %2, %3, %4;\n"
-               : "=r"(res)
-               : "r"(a), "r"(b), "r"(c), "n"(lut));
-  return res;
 }
 
-template <int start_byte, int mask>
-__device__ inline uint32_t prmt(uint32_t a) {
-  uint32_t res;
-  asm volatile("prmt.b32 %0, %1, %2, %3;\n"
-               : "=r"(res)
-               : "r"(a), "n"(start_byte), "n"(mask));
-  return res;
-}
+// template <>
+// class ScalarType<nv_bfloat16> {
+//  public:
+//   using scalar_t = nv_bfloat16;
+//   using scalar_t2 = nv_bfloat162;
+
+// #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
+//   static __device__ float inline num2float(const nv_bfloat16 x) {
+//     return __bfloat162float(x);
+//   }
+
+//   static __device__ nv_bfloat162 inline num2num2(const nv_bfloat16 x) {
+//     return __bfloat162bfloat162(x);
+//   }
+
+//   static __device__ nv_bfloat162 inline nums2num2(const nv_bfloat16 x1,
+//                                                   const nv_bfloat16 x2) {
+//     return __halves2bfloat162(x1, x2);
+//   }
+
+//   static __host__ __device__ nv_bfloat16 inline float2num(const float x) {
+//     return __float2bfloat16(x);
+//   }
+
+//   static __host__ __device__ nv_bfloat16 inline int2num(const float x) {
+//     return __int2bfloat16_rn(x);
+//   }
+
+//   static __host__ __device__ float2 inline num22float2(const nv_bfloat162 x) {
+//     return __bfloat1622float2(x);
+//   }
+
+//   static __host__ __device__ nv_bfloat162 inline float22num2(const float2 x) {
+//     return __float22bfloat162_rn(x);
+//   }
+// #endif
+// };
+
+// template <int lut>
+// __device__ inline int lop3(int a, int b, int c) {
+//   int res;
+//   asm volatile("lop3.b32 %0, %1, %2, %3, %4;\n"
+//                : "=r"(res)
+//                : "r"(a), "r"(b), "r"(c), "n"(lut));
+//   return res;
+// }
+
+// template <int start_byte, int mask>
+// __device__ inline uint32_t prmt(uint32_t a) {
+//   uint32_t res;
+//   asm volatile("prmt.b32 %0, %1, %2, %3;\n"
+//                : "=r"(res)
+//                : "r"(a), "n"(start_byte), "n"(mask));
+//   return res;
+// }
 
 template <typename scalar_t2, int bit>
 __device__ inline void dequant(int q, scalar_t2* res) {}
@@ -108,11 +142,11 @@ __device__ inline void dequant<half2, 4>(int q, half2* res) {
   const int MUL = 0x2c002c00;
   const int ADD = 0xd400d400;
 
-  int lo0 = lop3<(0xf0 & 0xcc) | 0xaa>(q, LO, EX);
-  int hi0 = lop3<(0xf0 & 0xcc) | 0xaa>(q, HI, EX);
+  int lo0 = bfi(LO, q, EX);
+  int hi0 = bfi(HI, q, EX);
   q >>= 8;
-  int lo1 = lop3<(0xf0 & 0xcc) | 0xaa>(q, LO, EX);
-  int hi1 = lop3<(0xf0 & 0xcc) | 0xaa>(q, HI, EX);
+  int lo1 = bfi(LO, q, EX);
+  int hi1 = bfi(HI, q, EX);
 
   res[0] = __hsub2(*reinterpret_cast<half2*>(&lo0),
                    *reinterpret_cast<const half2*>(&SUB));
@@ -126,22 +160,22 @@ __device__ inline void dequant<half2, 4>(int q, half2* res) {
                    *reinterpret_cast<const half2*>(&ADD));
 }
 
-template <>
-__device__ inline void dequant<half2, 8>(int q, half2* res) {
-  static constexpr uint32_t mask_for_elt_01 = 0x5250;
-  static constexpr uint32_t mask_for_elt_23 = 0x5351;
-  static constexpr uint32_t start_byte_for_fp16 = 0x64646464;
+// template <>
+// __device__ inline void dequant<half2, 8>(int q, half2* res) {
+//   static constexpr uint32_t mask_for_elt_01 = 0x5250;
+//   static constexpr uint32_t mask_for_elt_23 = 0x5351;
+//   static constexpr uint32_t start_byte_for_fp16 = 0x64646464;
 
-  uint32_t lo = prmt<start_byte_for_fp16, mask_for_elt_01>(q);
-  uint32_t hi = prmt<start_byte_for_fp16, mask_for_elt_23>(q);
+//   uint32_t lo = prmt<start_byte_for_fp16, mask_for_elt_01>(q);
+//   uint32_t hi = prmt<start_byte_for_fp16, mask_for_elt_23>(q);
 
-  static constexpr uint32_t I8s_TO_F16s_MAGIC_NUM = 0x64006400;
+//   static constexpr uint32_t I8s_TO_F16s_MAGIC_NUM = 0x64006400;
 
-  res[0] = __hsub2(*reinterpret_cast<half2*>(&lo),
-                   *reinterpret_cast<const half2*>(&I8s_TO_F16s_MAGIC_NUM));
-  res[1] = __hsub2(*reinterpret_cast<half2*>(&hi),
-                   *reinterpret_cast<const half2*>(&I8s_TO_F16s_MAGIC_NUM));
-}
+//   res[0] = __hsub2(*reinterpret_cast<half2*>(&lo),
+//                    *reinterpret_cast<const half2*>(&I8s_TO_F16s_MAGIC_NUM));
+//   res[1] = __hsub2(*reinterpret_cast<half2*>(&hi),
+//                    *reinterpret_cast<const half2*>(&I8s_TO_F16s_MAGIC_NUM));
+// }
 
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
 template <>

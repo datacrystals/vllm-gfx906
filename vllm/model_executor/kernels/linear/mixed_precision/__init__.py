@@ -34,15 +34,15 @@ from vllm.model_executor.kernels.linear.mixed_precision.xpu import (
 )
 
 __all__ = [
-    "MPLinearKernel",
-    "MPLinearLayerConfig",
-    "AllSparkLinearKernel",
-    "ConchLinearKernel",
-    "CPUWNA16LinearKernel",
-    "CutlassW4A8LinearKernel",
-    "Dynamic4bitLinearKernel",
+    # "MPLinearKernel",
+    # "MPLinearLayerConfig",
+    # "AllSparkLinearKernel",
+    # "ConchLinearKernel",
+    # "CPUWNA16LinearKernel",
+    # "CutlassW4A8LinearKernel",
+    # "Dynamic4bitLinearKernel",
     "ExllamaLinearKernel",
-    "MacheteLinearKernel",
-    "MarlinLinearKernel",
+    # "MacheteLinearKernel",
+    # "MarlinLinearKernel",
     "XPUwNa16LinearKernel",
 ]

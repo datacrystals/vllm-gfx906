@@ -25,11 +25,11 @@ __global__ void moe_wna16_gemm_kernel(
     uint32_t size_n, uint32_t size_k, uint16_t BLOCK_SIZE_M,
     uint16_t BLOCK_SIZE_N, uint16_t BLOCK_SIZE_K, bool has_zp,
     bool mul_topk_weight) {
-#if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ < 800
-  if constexpr (std::is_same<scalar_t, nv_bfloat16>::value) {
-    return;
-  } else {
-#endif
+// #if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ < 800
+//   if constexpr (std::is_same<scalar_t, nv_bfloat16>::value) {
+//     return;
+//   } else {
+// #endif
 
     using Dtype = ScalarType<scalar_t>;
     using scalar_t2 = typename ScalarType<scalar_t>::scalar_t2;
@@ -190,7 +190,7 @@ __global__ void moe_wna16_gemm_kernel(
       dequant<scalar_t2, bit>(expert_qweight_tmp[tmp_k % 4], weight_half2);
 
       for (int m = 0; m < num_valid_tokens; m++) {
-        res2 = {};
+        res2 = scalar_t2{};
 
 #pragma unroll
         for (int i = 0; i < 16 / bit; i++) {
@@ -213,13 +213,13 @@ __global__ void moe_wna16_gemm_kernel(
       if (mul_topk_weight) {
         res[m] *= topk_weights[token_index];
       }
-      atomicAdd(&output[token_index * size_n + offset_n],
+      atomicAdd_half(&output[token_index * size_n + offset_n],
                 Dtype::float2num(res[m]));
     }
 
-#if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ < 800
-  }
-#endif
+// #if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ < 800
+  // }
+// #endif
 }
 
 template <typename scalar_t>
@@ -249,6 +249,8 @@ void run_moe_wna16_gemm(const scalar_t* input, scalar_t* output,
       kernel = moe_wna16_gemm_kernel<scalar_t, 4, 4>;
     } else if (BLOCK_SIZE_K / group_size == 8) {
       kernel = moe_wna16_gemm_kernel<scalar_t, 4, 8>;
+    } else if (BLOCK_SIZE_K / group_size == 16) {
+      kernel = moe_wna16_gemm_kernel<scalar_t, 4, 16>;
     }
   } else {
     if (BLOCK_SIZE_K / group_size == 1) {
@@ -259,6 +261,8 @@ void run_moe_wna16_gemm(const scalar_t* input, scalar_t* output,
       kernel = moe_wna16_gemm_kernel<scalar_t, 8, 4>;
     } else if (BLOCK_SIZE_K / group_size == 8) {
       kernel = moe_wna16_gemm_kernel<scalar_t, 8, 8>;
+    } else if (BLOCK_SIZE_K / group_size == 16) {
+      kernel = moe_wna16_gemm_kernel<scalar_t, 8, 16>;
     }
   }
 
@@ -303,15 +307,15 @@ torch::Tensor moe_wna16_gemm(torch::Tensor input, torch::Tensor output,
     topk_weights_ptr = (const float*)topk_weights.value().data_ptr<float>();
 
   int groups_per_block_row = BLOCK_SIZE_K / group_size;
-  TORCH_CHECK(bit == 4 || bit == 8, "bit must be 4 or 8");
+  TORCH_CHECK(bit == 4 , "bit must be 4, gfx906 doesnt yet support 8, sorry about that.");
   TORCH_CHECK(size_k % BLOCK_SIZE_K == 0,
               "size_k must divisible by BLOCK_SIZE_K");
   TORCH_CHECK(BLOCK_SIZE_K % group_size == 0,
               "BLOCK_SIZE_K must divisible by group_size");
   TORCH_CHECK(BLOCK_SIZE_M <= 64, "BLOCK_SIZE_M must less or equal to 64");
   TORCH_CHECK(groups_per_block_row == 1 || groups_per_block_row == 2 ||
-                  groups_per_block_row == 4 || groups_per_block_row == 8,
-              "BLOCK_SIZE_K // group_size must be one of [1, 2, 4, 8]");
+    groups_per_block_row == 4 || groups_per_block_row == 8 ||
+    groups_per_block_row == 16, "BLOCK_SIZE_K // group_size must be one of [1, 2, 4, 8, 16]");
 
   if (input.scalar_type() == at::ScalarType::Half) {
     run_moe_wna16_gemm<half>(
@@ -324,19 +328,8 @@ torch::Tensor moe_wna16_gemm(torch::Tensor input, torch::Tensor output,
         num_experts, group_size, num_token_blocks, top_k, size_m, size_n,
         size_k, BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, bit,
         b_qzeros.has_value(), topk_weights.has_value());
-  } else if (input.scalar_type() == at::ScalarType::BFloat16) {
-    run_moe_wna16_gemm<nv_bfloat16>(
-        (const nv_bfloat16*)input.data_ptr<at::BFloat16>(),
-        (nv_bfloat16*)output.data_ptr<at::BFloat16>(),
-        (const uint32_t*)b_qweight.data_ptr<uint8_t>(),
-        (const nv_bfloat16*)b_scales.data_ptr<at::BFloat16>(), b_qzeros_ptr,
-        topk_weights_ptr, sorted_token_ids.data_ptr<int32_t>(),
-        expert_ids.data_ptr<int32_t>(), num_tokens_post_pad.data_ptr<int32_t>(),
-        num_experts, group_size, num_token_blocks, top_k, size_m, size_n,
-        size_k, BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, bit,
-        b_qzeros.has_value(), topk_weights.has_value());
   } else {
-    TORCH_CHECK(false, "moe_wna16_gemm only supports bfloat16 and float16");
+    TORCH_CHECK(false, "moe_wna16_gemm only supports float16 (modified as gfx906 does not support bfloat16, sorry...)");
   }
   return output;
 }
