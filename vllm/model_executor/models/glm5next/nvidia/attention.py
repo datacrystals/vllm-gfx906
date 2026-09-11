@@ -571,15 +571,19 @@ class Glm5NextMLAAttention(nn.Module):
 
         self.is_v32 = config.index_topk is not None
 
-        if self.is_v32 and config.qk_rope_head_dim > 0:
+        if self.is_v32:
             # GLM53-PORT: GLM-5.3-Flash is NoPE (qk_rope_head_dim == 0); do not
-            # construct a rotary for a zero-width indexer head dim.
-            self.indexer_rope_emb: RotaryEmbedding | None = get_rope(
-                qk_rope_head_dim,
-                max_position=max_position_embeddings,
-                rope_parameters=config.rope_parameters,
-                is_neox_style=not config.indexer_rope_interleave,
-            )
+            # construct a rotary for a zero-width indexer head dim, but STILL
+            # build the indexer: the ROCm sparse backend requires
+            # indexer.topk_indices_buffer (assert indexer is not None).
+            self.indexer_rope_emb: RotaryEmbedding | None = None
+            if config.qk_rope_head_dim > 0:
+                self.indexer_rope_emb = get_rope(
+                    qk_rope_head_dim,
+                    max_position=max_position_embeddings,
+                    rope_parameters=config.rope_parameters,
+                    is_neox_style=not config.indexer_rope_interleave,
+                )
             # The sparse indexer projects from the MLA q-lora rank, which is
             # always set for v32 MLA configs; narrow away the `int | None`.
             assert q_lora_rank is not None
