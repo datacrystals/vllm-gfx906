@@ -628,6 +628,18 @@ class Glm5NextVisionTransformer(nn.Module):
         return loaded
 
 
+# GLM53-PORT: this fork's InputProcessingContext.get_merged_mm_kwargs
+# predates upstream's per-modality `modality` kwarg (merge is
+# modality-agnostic); drop it when the fork signature lacks it.
+def _merged_mm_kwargs(ctx, modality: str | None) -> Mapping[str, object]:
+    try:
+        return ctx.get_merged_mm_kwargs({}, modality=modality)
+    except TypeError as exc:
+        if "modality" not in str(exc):
+            raise
+        return ctx.get_merged_mm_kwargs({})
+
+
 class Glm5NextProcessingInfo(Glm4vProcessingInfo):
     """Wires up the vLLM-native processor for the multimodal checkpoint.
 
@@ -655,7 +667,7 @@ class Glm5NextProcessingInfo(Glm4vProcessingInfo):
     ) -> tuple[int, int]:
         from vllm.transformers_utils.processors.glm5next import _pixel_budget
 
-        mm_kwargs = self.ctx.get_merged_mm_kwargs({}, modality=modality)
+        mm_kwargs = _merged_mm_kwargs(self.ctx, modality)
         min_tokens = mm_kwargs.get("min_image_tokens")
         max_tokens = mm_kwargs.get("max_image_tokens")
         if min_tokens is None:
@@ -675,7 +687,7 @@ class Glm5NextProcessingInfo(Glm4vProcessingInfo):
         )
 
     def _get_image_max_pixels(self) -> int:
-        mm_kwargs = self.ctx.get_merged_mm_kwargs({}, modality="image")
+        mm_kwargs = _merged_mm_kwargs(self.ctx, "image")
         if (override := mm_kwargs.get("max_pixels")) is not None:
             return int(override)
         return self._processor_pixel_budget(
@@ -690,7 +702,7 @@ class Glm5NextProcessingInfo(Glm4vProcessingInfo):
         return super().get_num_frames_with_most_features(seq_len, mm_counts)
 
     def _get_video_max_pixels(self) -> int:
-        mm_kwargs = self.ctx.get_merged_mm_kwargs({}, modality="video")
+        mm_kwargs = _merged_mm_kwargs(self.ctx, "video")
         if (override := mm_kwargs.get("max_pixels")) is not None:
             return int(override)
         return self._processor_pixel_budget(
