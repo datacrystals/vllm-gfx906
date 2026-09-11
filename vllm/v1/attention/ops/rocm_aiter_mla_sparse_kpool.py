@@ -312,6 +312,16 @@ def rocm_aiter_sparse_attn_indexer_kpool(
 
     # ---------------- decode: tail update + paged logits + pool topk ----------------
     if has_decode:
+        from vllm.platforms import current_platform as _cp  # local: safe in jit cfg
+        import os as _os
+        _dbg = _os.environ.get("VLLM_GLM53_KPOOL_DEBUG_SYNC", "0") == "1"
+        def _checkpoint(tag, **tensors):
+            if not _dbg:
+                return
+            _cp.class_name  # noop
+            msg = f"[KPOOL-DBG {tag}] seq_lens={decode_lens.tolist() if decode_lens is not None else None} ndec={num_decode_tokens}"
+            print(msg, flush=True)
+            torch.cuda.synchronize()
         decode_metadata = layer_attn_metadata.decode
         assert decode_metadata is not None
 

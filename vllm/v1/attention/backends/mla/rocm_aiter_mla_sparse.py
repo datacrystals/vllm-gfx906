@@ -26,9 +26,13 @@ from vllm.v1.attention.backend import (
     MultipleOf,
     SparseMLAAttentionImpl,
 )
-from vllm.v1.attention.backends.mla.flashmla_sparse import (
+from vllm.v1.attention.backends.mla.flashmla_sparse import (    build_c128a_topk_metadata,
     triton_convert_req_index_to_global_index,
 )
+from vllm.v1.attention.backends.utils import split_decodes_and_prefills
+from vllm.v1.attention.backends.mla.compressor_utils import get_compressed_slot_mapping
+from vllm.utils.math_utils import cdiv
+from vllm.utils.math_utils import cdiv
 from vllm.v1.attention.backends.mla.rocm_aiter_mla import (
     AiterMLAHelper,
 )
@@ -91,7 +95,11 @@ class ROCMAiterMLASparseBackend(AttentionBackend):
 
     @staticmethod
     def get_supported_kernel_block_sizes() -> list[int | MultipleOf]:
-        return [1, 32, 64]
+        # Include 256 so that on DeepSeek-V4 the C4A compressed storage_block_size
+        # (256//4=64) can match the SWA hardcoded block_size (64), making page
+        # sizes align and avoiding the max(sm_page_sizes) <= max(all_page_sizes)
+        # assertion failure.
+        return [1, 32, 64, 256]
 
     @staticmethod
     def get_name() -> str:
@@ -150,6 +158,11 @@ class ROCMAiterMLASparseMetadata(AttentionMetadata):
     block_size: int = 1
     topk_tokens: int = 2048
 
+    # Pre-computed C128A metadata (DeepseekV4 only, compress_ratio == 128).
+    c128a_global_decode_topk_indices: torch.Tensor | None = None
+    c128a_decode_topk_lens: torch.Tensor | None = None
+    c128a_prefill_topk_indices: torch.Tensor | None = None
+
 
 @dataclass
 class ROCMAiterMLASparseMetadataBuilder(
@@ -176,8 +189,9 @@ class ROCMAiterMLASparseMetadataBuilder(
         self.topk_tokens = vllm_config.model_config.hf_config.index_topk
         # GLM53-PORT: GLM-5.3 kpool expand (+ always-select tail) yields
         # index_topk + index_kpool - 1 indices per row, 128-aligned. The
-        # global-index conversion and ragged fetch walk the whole padded
-        # buffer width; advertise the padded width here.
+        # global-index conversion (triton_convert_req_index_to_global_index)
+        # and ragged fetch walk the whole padded buffer width; keep them
+        # consistent by advertising the padded width here.
         _index_kpool = getattr(
             vllm_config.model_config.hf_config, "index_kpool", None
         ) or 1
@@ -201,6 +215,46 @@ class ROCMAiterMLASparseMetadataBuilder(
             dtype=torch.int32,
             device=device,
         )
+
+        # DeepseekV4: has compress_ratios in hf_config.
+        hf_config = vllm_config.model_config.hf_config
+        self.is_deepseek_v4 = (
+            hasattr(hf_config, "compress_ratios") and len(hf_config.compress_ratios) > 0
+        )
+        self.compress_ratio = 1
+        if self.is_deepseek_v4 and hasattr(self.kv_cache_spec, "compress_ratio"):
+            self.compress_ratio = self.kv_cache_spec.compress_ratio
+
+        # Pre-allocate C128A topk buffers (structural topk indices for
+        # compress_ratio == 128 layers).
+        if self.is_deepseek_v4 and self.compress_ratio == 128:
+            max_num_batched_tokens = (
+                vllm_config.scheduler_config.max_num_batched_tokens
+            )
+            _C128A_TOPK_ALIGNMENT = 128
+            c128a_max_compressed = cdiv(
+                self.model_config.max_model_len, self.compress_ratio
+            )
+            c128a_max_compressed = (
+                cdiv(c128a_max_compressed, _C128A_TOPK_ALIGNMENT)
+                * _C128A_TOPK_ALIGNMENT
+            )
+            self.c128a_max_compressed = c128a_max_compressed
+            self.c128a_global_decode_buffer = torch.empty(
+                (max_num_batched_tokens, c128a_max_compressed),
+                dtype=torch.int32,
+                device=self.device,
+            )
+            self.c128a_decode_lens_buffer = torch.empty(
+                max_num_batched_tokens,
+                dtype=torch.int32,
+                device=self.device,
+            )
+            self.c128a_prefill_buffer = torch.empty(
+                (max_num_batched_tokens, c128a_max_compressed),
+                dtype=torch.int32,
+                device=self.device,
+            )
         if not envs.VLLM_ROCM_MLA_SPARSE_FP16:
             max_num_batched_tokens = vllm_config.scheduler_config.max_num_batched_tokens
             self.qo_indptr = torch.arange(
@@ -230,6 +284,31 @@ class ROCMAiterMLASparseMetadataBuilder(
         num_tokens = common_attn_metadata.num_actual_tokens
         starts = np.asarray(common_attn_metadata.query_start_loc_cpu, dtype=np.int32)
         seg_lengths = np.diff(starts)
+
+        # gfx906/ROCm fp16 path: the compressed-attention cache is addressed in
+        # compressed-UNIT space (unit = position // compress_ratio), but the
+        # engine's common slot_mapping for this group is in RAW token space.
+        # The compressor flush kernels interpret slot_mapping as compressed
+        # slots — feeding raw token slots makes the flush write to
+        # out-of-range/wrong blocks (raw slot 32639 into a kv cache whose
+        # unit-space max is 8494 → all-rank GPU memory fault at the first
+        # flush once the slot space grows). Build the compressed mapping here,
+        # mirroring DeepseekV32IndexerMetadataBuilder.
+        slot_mapping = common_attn_metadata.slot_mapping
+        if (
+            envs.VLLM_ROCM_MLA_SPARSE_FP16
+            and self.is_deepseek_v4
+            and self.compress_ratio > 1
+        ):
+            slot_mapping = get_compressed_slot_mapping(
+                num_tokens,
+                common_attn_metadata.query_start_loc,
+                common_attn_metadata.seq_lens,
+                common_attn_metadata.block_table_tensor,
+                self.kv_cache_spec.storage_block_size,
+                self.compress_ratio,
+            )
+
         req_id_per_token = np.repeat(
             np.arange(seg_lengths.shape[0], dtype=np.int32), seg_lengths
         )
@@ -256,13 +335,53 @@ class ROCMAiterMLASparseMetadataBuilder(
             paged_kv_indptr_rest = None
 
 
+        # Pre-compute C128A topk indices for DeepseekV4 (compress_ratio == 128).
+        # Structural (positions-only) metadata, same as the CUDA FlashMLA path.
+        c128a_fields: dict = {}
+        if self.is_deepseek_v4 and self.compress_ratio == 128:
+            cm = common_attn_metadata
+            (num_decodes, _, num_decode_tokens, num_prefill_tokens) = (
+                split_decodes_and_prefills(
+                    cm,
+                    decode_threshold=self.reorder_batch_threshold or 1,
+                )
+            )
+            num_total = num_decode_tokens + num_prefill_tokens
+            if num_total > 0:
+                assert cm.positions is not None, (
+                    "positions is required for C128A metadata build"
+                )
+                block_size = self.kv_cache_spec.block_size // self.compress_ratio
+                global_decode, decode_lens, prefill_local = (
+                    build_c128a_topk_metadata(
+                        cm.positions[:num_total],
+                        self.compress_ratio,
+                        num_decode_tokens,
+                        req_id_per_token,
+                        cm.block_table_tensor[:num_decodes],
+                        block_size,
+                        cm.slot_mapping,
+                        self.c128a_global_decode_buffer,
+                        self.c128a_decode_lens_buffer,
+                        self.c128a_prefill_buffer,
+                        max_compressed_tokens=self.c128a_max_compressed,
+                    )
+                )
+                if num_decode_tokens > 0:
+                    c128a_fields["c128a_global_decode_topk_indices"] = (
+                        global_decode.view(num_decode_tokens, 1, -1)
+                    )
+                    c128a_fields["c128a_decode_topk_lens"] = decode_lens
+                if num_prefill_tokens > 0:
+                    c128a_fields["c128a_prefill_topk_indices"] = prefill_local
+
         metadata = ROCMAiterMLASparseMetadata(
             num_reqs=common_attn_metadata.num_reqs,
             max_query_len=common_attn_metadata.max_query_len,
             max_seq_len=common_attn_metadata.max_seq_len,
             num_actual_tokens=common_attn_metadata.num_actual_tokens,
             query_start_loc=common_attn_metadata.query_start_loc,
-            slot_mapping=common_attn_metadata.slot_mapping,
+            slot_mapping=slot_mapping,
             block_table=common_attn_metadata.block_table_tensor,
             req_id_per_token=req_id_per_token,
             block_size=self.kv_cache_spec.block_size,
@@ -272,6 +391,7 @@ class ROCMAiterMLASparseMetadataBuilder(
             paged_kv_indices=paged_kv_indices,
             paged_kv_indptr=paged_kv_indptr,
             paged_kv_indptr_rest=paged_kv_indptr_rest,
+            **c128a_fields,
         )
         return metadata
 

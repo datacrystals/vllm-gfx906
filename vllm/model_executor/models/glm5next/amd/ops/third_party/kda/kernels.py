@@ -995,7 +995,7 @@ def fused_kda_gate_chunk_cumsum(
         # RCP_LN2 folds in the natural-log -> log2 conversion so downstream
         # exp2-based kernels reproduce exp(g). Keep this in sync with the
         # `use_exp2=True` path in `_chunk_kda_fwd_with_cumulative_g`.
-        cumsum_scale=RCP_LN2,
+        cumsum_scale=1.0,  # GLM53-PORT: fork fla fwd_h is ln-domain (tl.exp); skip ln->log2 rescale
         beta=beta,
         threshold=threshold,
         SAFE_GATE=safe_gate,
@@ -1058,8 +1058,7 @@ def _chunk_kda_fwd_with_cumulative_g(
         output_final_state=output_final_state,
         cu_seqlens=cu_seqlens,
         chunk_indices=chunk_indices,
-        use_exp2=True,
-    )
+            )
     del w, u, kg
     o = chunk_gla_fwd_o_gk(
         q=q,

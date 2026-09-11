@@ -172,6 +172,7 @@ def with_amdsmi_context(fn):
 # "gfx9006" instead of "gfx906".  Map them to canonical names here.
 _AMDSMI_GFX_NORMALIZATION: dict[str, str] = {
     "gfx9006": "gfx906",
+    "gfx0": "gfx906",
 }
 
 

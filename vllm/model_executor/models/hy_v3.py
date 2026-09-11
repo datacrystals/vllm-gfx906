@@ -705,3 +705,30 @@ class HYV3ForCausalLM(nn.Module, SupportsPP, SupportsLoRA):
 
     def get_expert_mapping(self) -> list[tuple[str, str, int, str]]:
         return self.model.get_expert_mapping()
+
+# --- gfx906 profiler anchor (installed when VLLM_GFX906_PROF_DIR set) ---
+if __import__("os").environ.get("VLLM_GFX906_PROF_DIR"):
+    import sys as _sx
+    if "/data/vllm-gfx906-dsv4/patches/gdn" not in _sx.path:
+        _sx.path.insert(0, "/data/vllm-gfx906-dsv4/patches/gdn")
+    import prof_patch  # noqa: F401 (self-installs on Worker.execute_model)
+
+# --- gfx906 NAN probe anchor (installed when VLLM_GDN_GFX906_AUTOPATCH=1) ---
+if __import__("os").environ.get("VLLM_GDN_GFX906_AUTOPATCH") == "1":
+    import sys as _sx2
+    if "/data/vllm-gfx906-dsv4/patches/gdn" not in _sx2.path:
+        _sx2.path.insert(0, "/data/vllm-gfx906-dsv4/patches/gdn")
+    import gdn_gfx906_fallback as _fb2
+    _fb2.install_gfx906_gdn_fallback()
+
+# --- gfx906 skinny-GEMV anchor (installed when VLLM_GFX906_GEMV=1) ---
+# C2 decode optimization: replaces the generic tiled triton_matmul used for
+# skinny fp16 GEMMs (M<=8: qkv/o_proj/shared gate_up/shared down) with the
+# hand-built bandwidth-bound GEMV in patches/gdn/gfx906_gemv.py. Default OFF;
+# unset the flag to revert to the stock kernel at zero cost.
+if __import__("os").environ.get("VLLM_GFX906_GEMV") == "1":
+    import sys as _sx3
+    if "/data/vllm-gfx906-dsv4/patches/gdn" not in _sx3.path:
+        _sx3.path.insert(0, "/data/vllm-gfx906-dsv4/patches/gdn")
+    import gfx906_gemv as _gemv
+    _gemv.install_gfx906_gemv()
