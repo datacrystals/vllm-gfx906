@@ -16,6 +16,7 @@ from vllm.v1.kv_cache_interface import (
     ChunkedLocalAttentionSpec,
     CrossAttentionSpec,
     FullAttentionSpec,
+    KpoolTailSpec,
     KVCacheSpec,
     MambaSpec,
     MLAAttentionSpec,
@@ -1133,6 +1134,67 @@ class SinkFullAttentionManager(FullAttentionManager):
         self.sink_blocks = self.block_pool.free_block_queue.popleft_n(num_sink_block)
 
 
+# GLM53-PORT: vendored from upstream vLLM main (GLM-5.3-Flash, PR #53906),
+# adapted to this fork's manager API. One-block-per-request circular scratch
+# for the kpool indexer tail; blocks are never cached/shared/pruned.
+class KpoolTailManager(SingleTypeKVCacheManager):
+    """One-block circular scratch manager for ``KpoolTailSpec``."""
+
+    def __init__(self, kv_cache_spec: KpoolTailSpec, **kwargs) -> None:
+        super().__init__(kv_cache_spec, **kwargs)
+
+    def _claim_ring_block(self, request_id: str) -> list[KVCacheBlock]:
+        req_blocks = self.req_to_blocks[request_id]
+        if req_blocks:
+            return []
+        new_blocks = self.block_pool.get_new_blocks(1)
+        req_blocks.extend(new_blocks)
+        return new_blocks
+
+    def get_num_blocks_to_allocate(
+        self,
+        request_id: str,
+        num_tokens: int,
+        new_computed_blocks: Sequence[KVCacheBlock],
+        total_computed_tokens: int,
+        num_tokens_main_model: int,
+    ) -> int:
+        return 0 if self.req_to_blocks.get(request_id) else 1
+
+    def allocate_new_blocks(
+        self, request_id: str, num_tokens: int, num_tokens_main_model: int
+    ) -> list[KVCacheBlock]:
+        return self._claim_ring_block(request_id)
+
+    @classmethod
+    def find_longest_cache_hit(
+        cls,
+        block_hashes: "BlockHashList",
+        max_length: int,
+        kv_cache_group_ids: list[int],
+        block_pool: BlockPool,
+        kv_cache_spec: KVCacheSpec,
+        use_eagle: bool,
+        alignment_tokens: int,
+        dcp_world_size: int = 1,
+        pcp_world_size: int = 1,
+    ) -> tuple[list[KVCacheBlock], ...]:
+        # The tail cache is a per-request scratch; it never shares prefixes.
+        return tuple([] for _ in range(len(kv_cache_group_ids)))
+
+    def cache_blocks(self, request: Request, num_tokens: int) -> None:
+        return
+
+    def remove_skipped_blocks(self, request_id: str, num_computed_tokens: int) -> None:
+        return
+
+    def get_num_common_prefix_blocks(self, running_request_id: str) -> int:
+        return 0
+
+    def get_num_skipped_tokens(self, num_computed_tokens: int) -> int:
+        return 0
+
+
 spec_manager_map: dict[type[KVCacheSpec], type[SingleTypeKVCacheManager]] = {
     FullAttentionSpec: FullAttentionManager,
     TQFullAttentionSpec: FullAttentionManager,
@@ -1143,6 +1205,7 @@ spec_manager_map: dict[type[KVCacheSpec], type[SingleTypeKVCacheManager]] = {
     MambaSpec: MambaManager,
     CrossAttentionSpec: CrossAttentionManager,
     SinkFullAttentionSpec: SinkFullAttentionManager,
+    KpoolTailSpec: KpoolTailManager,
 }
 
 

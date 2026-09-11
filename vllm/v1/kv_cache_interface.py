@@ -517,6 +517,30 @@ class SlidingWindowMLASpec(SlidingWindowSpec):
         )
 
 
+# GLM53-PORT: vendored from upstream vLLM main (GLM-5.3-Flash, PR #53906).
+@dataclass(frozen=True, kw_only=True)
+class KpoolTailSpec(SlidingWindowSpec):
+    """One-block circular scratch cache for a kpool indexer's raw tail.
+
+    Each request owns exactly one block of ``block_size == index_kpool``
+    slots, holding the raw K + gate score of the in-progress (incomplete)
+    pool. The block is overwritten in place (``pos % kpool``) as decode
+    advances; slots are never prefix-cacheable and never pruned.
+    """
+
+    def max_admission_blocks_per_request(
+        self, max_num_batched_tokens: int, max_model_len: int
+    ) -> int:
+        return 1
+
+    def max_memory_usage_bytes(self, vllm_config: VllmConfig) -> int:
+        return self.page_size_bytes
+
+    @property
+    def unpadded_page_size_bytes(self) -> int:
+        return self.real_page_size_bytes
+
+
 @dataclass(frozen=True)
 class MambaSpec(KVCacheSpec):
     shapes: tuple[tuple[int, ...], ...]

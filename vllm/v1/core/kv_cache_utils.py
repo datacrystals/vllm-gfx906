@@ -21,6 +21,7 @@ from vllm.utils.mem_utils import format_gib
 from vllm.v1.kv_cache_interface import (
     ChunkedLocalAttentionSpec,
     FullAttentionSpec,
+    KpoolTailSpec,
     KVCacheConfig,
     KVCacheGroupSpec,
     KVCacheSpec,
@@ -1159,6 +1160,162 @@ def _get_kv_cache_groups_uniform_page_size(
     return create_kv_cache_group_specs(kv_cache_spec, grouped_layers)
 
 
+# GLM53-PORT: vendored from upstream vLLM main (GLM-5.3-Flash, PR #53906)
+# and adapted to this fork's KV-cache API:
+#   - upstream ``tokens_per_state`` (indexer kpool granularity) maps to this
+#     fork's DSV4-era ``MLAAttentionSpec.compress_ratio``;
+#   - no cross-group page aliasing: at TP8 the GLM-5.3 KDA state page (fp32
+#     recurrent state, heads/tp x 128 x 128) can exceed the fp16 MLA page at
+#     block_size 256, so each layer gets its own tensor and the shared block
+#     pool is accounted by the sum of all layer page sizes per block.
+def _get_kv_cache_groups_glm5_next(
+    vllm_config: VllmConfig,
+    kv_cache_spec: dict[str, KVCacheSpec],
+) -> list[KVCacheGroupSpec] | None:
+    """Build GLM-5.3-Flash groups: [all-MLA uniform group (incl. kpool
+    indexer layers), mamba (KDA) groups, optional kpool-tail group]."""
+    mamba_specs = {
+        name: spec
+        for name, spec in kv_cache_spec.items()
+        if isinstance(spec, MambaSpec)
+    }
+    tail_specs = {
+        name: spec
+        for name, spec in kv_cache_spec.items()
+        if isinstance(spec, KpoolTailSpec)
+    }
+    attn_specs = {
+        name: spec
+        for name, spec in kv_cache_spec.items()
+        if not isinstance(spec, (MambaSpec, KpoolTailSpec))
+    }
+    if not mamba_specs or not all(
+        type(spec) is MLAAttentionSpec for spec in attn_specs.values()
+    ):
+        return None
+
+    mla_specs = cast(dict[str, MLAAttentionSpec], attn_specs)
+    # GLM53-PORT: kpool indexer layers carry compress_ratio == index_kpool
+    # (this fork's equivalent of upstream's tokens_per_state).
+    idx_pages = {
+        spec.page_size_bytes for spec in mla_specs.values() if spec.compress_ratio > 1
+    }
+    if not idx_pages:
+        return None
+
+    assert all(spec.page_size_padded is None for spec in mla_specs.values())
+    assert len(idx_pages) == 1
+    mla_names = [name for name, spec in mla_specs.items() if spec.compress_ratio == 1]
+    assert len(mla_names) > 0
+    mla_pages = {mla_specs[name].page_size_bytes for name in mla_names}
+    assert len(mla_pages) == 1
+    uniform_spec = UniformTypeKVCacheSpecs.from_specs(attn_specs)
+    assert uniform_spec is not None
+
+    tail_group: KVCacheGroupSpec | None = None
+    if tail_specs:
+        tail_uniform = UniformTypeKVCacheSpecs.from_specs(tail_specs)
+        assert tail_uniform is not None
+        tail_group = KVCacheGroupSpec(list(tail_specs), tail_uniform)
+
+    any_mamba = next(iter(mamba_specs.values()))
+    assert all(spec == any_mamba for spec in mamba_specs.values())
+    # NOTE: PP is out of scope for the gfx906 port (TP8 only).
+    assert vllm_config.parallel_config.pipeline_parallel_size == 1
+
+    return (
+        [KVCacheGroupSpec(list(attn_specs), uniform_spec)]
+        + create_kv_cache_group_specs(mamba_specs, [list(mamba_specs)])
+        + ([tail_group] if tail_group is not None else [])
+    )
+
+
+def _glm5_next_layout(
+    kv_cache_groups: list[KVCacheGroupSpec],
+) -> (
+    tuple[KVCacheGroupSpec, list[KVCacheGroupSpec], KVCacheGroupSpec | None]
+    | None
+):
+    """Recognize the GLM-5.3-Flash grouping produced by
+    ``_get_kv_cache_groups_glm5_next``: one uniform all-MLA group containing
+    at least one kpool indexer spec (compress_ratio > 1), one or more Mamba
+    groups, and an optional uniform KpoolTail group."""
+    if not kv_cache_groups:
+        return None
+    attn_group = kv_cache_groups[0]
+    if not isinstance(attn_group.kv_cache_spec, UniformTypeKVCacheSpecs):
+        return None
+    inner = attn_group.kv_cache_spec.kv_cache_specs
+    if not all(type(spec) is MLAAttentionSpec for spec in inner.values()):
+        return None
+    if not any(spec.compress_ratio > 1 for spec in inner.values()):
+        return None
+    mamba_groups: list[KVCacheGroupSpec] = []
+    tail_group: KVCacheGroupSpec | None = None
+    for group in kv_cache_groups[1:]:
+        if isinstance(group.kv_cache_spec, MambaSpec):
+            mamba_groups.append(group)
+        elif isinstance(group.kv_cache_spec, UniformTypeKVCacheSpecs) and all(
+            isinstance(spec, KpoolTailSpec)
+            for spec in group.kv_cache_spec.kv_cache_specs.values()
+        ):
+            tail_group = group
+        else:
+            return None
+    if not mamba_groups:
+        return None
+    return attn_group, mamba_groups, tail_group
+
+
+def _get_kv_cache_config_glm5_next(
+    vllm_config: VllmConfig,
+    kv_cache_groups: list[KVCacheGroupSpec],
+    available_memory: int,
+    suppress_log: bool = False,
+) -> tuple[int, list[KVCacheTensor]]:
+    """GLM53-PORT: one tensor per layer; a single shared block-id pool whose
+    per-block byte budget is the sum of every layer's page size (MLA + kpool
+    indexer + KDA mamba states + kpool tail). Unlike upstream (and unlike the
+    DSV4 allocator), no cross-group aliasing is used: a block id taken by one
+    group is exclusive to it, so per-layer tensors are correct and simpler."""
+    layout = _glm5_next_layout(kv_cache_groups)
+    assert layout is not None
+    attn_group, mamba_groups, tail_group = layout
+
+    inner = attn_group.kv_cache_spec.kv_cache_specs
+
+    bytes_per_block = sum(spec.page_size_bytes for spec in inner.values())
+    bytes_per_block += sum(
+        group.kv_cache_spec.page_size_bytes for group in mamba_groups
+    )
+    if tail_group is not None:
+        bytes_per_block += tail_group.kv_cache_spec.page_size_bytes
+
+    num_blocks = available_memory // bytes_per_block
+    num_blocks = may_override_num_blocks(vllm_config, num_blocks, suppress_log)
+
+    kv_cache_tensors: list[KVCacheTensor] = []
+    for group in kv_cache_groups:
+        if isinstance(group.kv_cache_spec, UniformTypeKVCacheSpecs):
+            per_layer = group.kv_cache_spec.kv_cache_specs
+            for layer_name in group.layer_names:
+                kv_cache_tensors.append(
+                    KVCacheTensor(
+                        size=per_layer[layer_name].page_size_bytes * num_blocks,
+                        shared_by=[layer_name],
+                    )
+                )
+        else:
+            for layer_name in group.layer_names:
+                kv_cache_tensors.append(
+                    KVCacheTensor(
+                        size=group.kv_cache_spec.page_size_bytes * num_blocks,
+                        shared_by=[layer_name],
+                    )
+                )
+    return num_blocks, kv_cache_tensors
+
+
 def _get_kv_cache_config_deepseek_v4(
     vllm_config: VllmConfig,
     kv_cache_groups: list[KVCacheGroupSpec],
@@ -1263,6 +1420,11 @@ def get_kv_cache_config_from_groups(
             )
             for layer_name in kv_cache_groups[0].layer_names
         ]
+    elif _glm5_next_layout(kv_cache_groups) is not None:
+        # GLM53-PORT: GLM-5.3-Flash (MLA + kpool indexer + KDA mamba + tail).
+        num_blocks, kv_cache_tensors = _get_kv_cache_config_glm5_next(
+            vllm_config, kv_cache_groups, available_memory, suppress_log
+        )
     elif all(
         isinstance(group.kv_cache_spec, UniformTypeKVCacheSpecs)
         for group in kv_cache_groups
@@ -1636,6 +1798,10 @@ def get_kv_cache_groups(
         # full attention, or all layers are sliding window attention with the
         # same window size). Put all layers into one group.
         return _get_kv_cache_groups_uniform_type(uniform_spec)
+    elif glm5_groups := _get_kv_cache_groups_glm5_next(vllm_config, kv_cache_spec):
+        # GLM53-PORT: GLM-5.3-Flash (all-MLA group incl. kpool indexer layers
+        # + mamba groups + kpool tail group).
+        return glm5_groups
     elif grouped_specs := group_and_unify_kv_cache_specs(kv_cache_spec):
         # DeepseekV4 case: All layers need the same number of token slots,
         # yet some layers are full attention while others are sliding window
@@ -1735,6 +1901,29 @@ def _max_memory_usage_bytes_from_groups(
     """
     if not kv_cache_groups:
         return 0
+
+    if (glm5_layout := _glm5_next_layout(kv_cache_groups)) is not None:
+        # GLM53-PORT: per-layer-tensor accounting matching
+        # _get_kv_cache_config_glm5_next (no cross-group aliasing).
+        attn_group, mamba_groups, tail_group = glm5_layout
+        inner = attn_group.kv_cache_spec.kv_cache_specs
+        bytes_per_block = sum(spec.page_size_bytes for spec in inner.values())
+        bytes_per_block += sum(
+            group.kv_cache_spec.page_size_bytes for group in mamba_groups
+        )
+        if tail_group is not None:
+            bytes_per_block += tail_group.kv_cache_spec.page_size_bytes
+        total_blocks = attn_group.kv_cache_spec.max_memory_usage_pages(vllm_config)
+        total_blocks += sum(
+            math.ceil(
+                group.kv_cache_spec.max_memory_usage_bytes(vllm_config)
+                / group.kv_cache_spec.page_size_bytes
+            )
+            for group in mamba_groups
+        )
+        if tail_group is not None:
+            total_blocks += 1
+        return total_blocks * bytes_per_block
 
     if len(kv_cache_groups) == 1 and isinstance(
         kv_cache_groups[0].kv_cache_spec, UniformTypeKVCacheSpecs

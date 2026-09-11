@@ -165,6 +165,160 @@ class DeepseekV4IndexerBackend(DeepseekV32IndexerBackend):
         return [256]
 
 
+# ---------------------------------------------------------------------------
+# GLM53-PORT: kpool tail cache backend + metadata builder.
+# Vendored from upstream vLLM main (GLM-5.3-Flash, PR #53906) and adapted to
+# this fork:
+#   - no KVCacheLayout plumbing (absent in this fork);
+#   - CommonAttentionMetadata here has no ``positions`` tensor, so the token
+#     positions are reconstructed from seq_lens/query_start_loc;
+#   - cudagraph support is declared via the fork's ``_cudagraph_support``
+#     attribute.
+# ---------------------------------------------------------------------------
+class KpoolTailBackend(DeepseekV32IndexerBackend):
+    """Storage-only backend for the GLM-5.3-Flash kpool tail cache."""
+
+    @staticmethod
+    def get_name() -> str:
+        return "KPOOL_TAIL"
+
+    @classmethod
+    def get_supported_head_sizes(cls) -> list[int]:
+        return [128]
+
+    @staticmethod
+    def get_supported_kernel_block_sizes() -> list[int | MultipleOf]:
+        return [MultipleOf(1)]
+
+    @staticmethod
+    def get_kv_cache_shape(
+        num_blocks: int,
+        block_size: int,
+        num_kv_heads: int,
+        head_size: int,
+        cache_dtype_str: str = "auto",
+    ) -> tuple[int, ...]:
+        # [num_blocks, 2 (K + gate score), kpool (block_size), head_dim]
+        assert num_kv_heads == 2
+        return (num_blocks, num_kv_heads, block_size, head_size)
+
+    @staticmethod
+    def get_builder_cls() -> type["KpoolTailMetadataBuilder"]:
+        return KpoolTailMetadataBuilder
+
+
+def compute_kpool_tail_slot_mapping(
+    slot_mapping: torch.Tensor,
+    block_table: torch.Tensor,
+    query_start_loc: torch.Tensor,
+    seq_lens: torch.Tensor,
+    num_actual_tokens: int,
+    num_reqs: int,
+    kpool: int,
+    out: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Map every token to its request's one circular tail block.
+
+    ``slot = block_table[req, 0] * kpool + pos % kpool``. Positions are
+    derived as ``ctx_len + intra-request index`` (this fork's
+    ``CommonAttentionMetadata`` does not carry ``positions``).
+    """
+    if out is None:
+        out = slot_mapping.clone()
+    else:
+        assert out.shape == slot_mapping.shape
+        out.copy_(slot_mapping)
+    if num_actual_tokens == 0:
+        return out
+    device = slot_mapping.device
+    tokens = torch.arange(num_actual_tokens, device=device)
+    req = torch.searchsorted(query_start_loc, tokens, right=True) - 1
+    req = req.clamp_(min=0, max=num_reqs - 1)
+    q_start = query_start_loc[req]
+    q_len = query_start_loc[req + 1] - q_start
+    # position of token within the request (0-based)
+    pos = seq_lens[:num_reqs][req] - q_len + (tokens - q_start)
+    own_block = block_table[:num_reqs, 0].index_select(0, req).to(torch.int64)
+    out[:num_actual_tokens] = own_block * kpool + torch.remainder(pos, kpool)
+    return out
+
+
+class KpoolTailMetadataBuilder(AttentionMetadataBuilder):
+    """Build only the circular slot mapping needed by the storage-only tail."""
+
+    _cudagraph_support = AttentionCGSupport.ALWAYS
+    reorder_batch_threshold: int = 1
+
+    def __init__(
+        self,
+        kv_cache_spec: AttentionSpec,
+        layer_names: list[str],
+        vllm_config: VllmConfig,
+        device: torch.device,
+    ):
+        super().__init__(kv_cache_spec, layer_names, vllm_config, device)
+        self.slot_mapping_buffer = torch.empty(
+            vllm_config.scheduler_config.max_num_batched_tokens,
+            dtype=torch.int64,
+            device=device,
+        )
+
+    def build(
+        self,
+        common_prefix_len: int,
+        common_attn_metadata: CommonAttentionMetadata,
+        fast_build: bool = False,
+    ) -> "DeepseekV32IndexerMetadata":
+        num_decodes, num_prefills, num_decode_tokens, num_prefill_tokens = (
+            split_decodes_and_prefills(
+                common_attn_metadata, decode_threshold=self.reorder_batch_threshold
+            )
+        )
+        slot_mapping = common_attn_metadata.slot_mapping
+        slot_mapping_buffer = self.slot_mapping_buffer[: slot_mapping.numel()].view_as(
+            slot_mapping
+        )
+        if common_attn_metadata.positions is not None:
+            # Upstream path: positions come bundled with the common metadata.
+            tokens = torch.arange(
+                common_attn_metadata.num_actual_tokens, device=slot_mapping.device
+            )
+            query_start_loc = common_attn_metadata.query_start_loc
+            req = torch.searchsorted(query_start_loc, tokens, right=True) - 1
+            req = req.clamp_(min=0, max=common_attn_metadata.num_reqs - 1)
+            own_block = (
+                common_attn_metadata.block_table_tensor[: common_attn_metadata.num_reqs, 0]
+                .index_select(0, req)
+                .to(torch.int64)
+            )
+            pos = common_attn_metadata.positions[: common_attn_metadata.num_actual_tokens]
+            slot_mapping_buffer[: common_attn_metadata.num_actual_tokens] = (
+                own_block * self.kv_cache_spec.block_size
+                + torch.remainder(pos.to(torch.int64), self.kv_cache_spec.block_size)
+            )
+            slot_mapping = slot_mapping_buffer
+        else:
+            slot_mapping = compute_kpool_tail_slot_mapping(
+                slot_mapping,
+                common_attn_metadata.block_table_tensor,
+                common_attn_metadata.query_start_loc,
+                common_attn_metadata.seq_lens,
+                common_attn_metadata.num_actual_tokens,
+                common_attn_metadata.num_reqs,
+                self.kv_cache_spec.block_size,
+                out=slot_mapping_buffer,
+            )
+        return DeepseekV32IndexerMetadata(
+            seq_lens=common_attn_metadata.seq_lens,
+            max_seq_len=common_attn_metadata.max_seq_len,
+            slot_mapping=slot_mapping,
+            num_decodes=num_decodes,
+            num_decode_tokens=num_decode_tokens,
+            num_prefills=num_prefills,
+            num_prefill_tokens=num_prefill_tokens,
+        )
+
+
 @dataclass
 class DeepseekV32IndexerPrefillChunkMetadata:
     block_table: torch.Tensor
