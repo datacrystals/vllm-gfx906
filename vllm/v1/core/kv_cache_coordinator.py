@@ -414,6 +414,19 @@ class HybridKVCacheCoordinator(KVCacheCoordinator):
         # different KV cache groups have different block sizes, the actual block size
         # can be a multiple of hash_block_size.
         self.hash_block_size = hash_block_size
+        # GLM53-PORT: print the divisibility check inputs on failure so the
+        # hybrid-group block-size negotiation is debuggable without a debugger.
+        if not all(
+            g.kv_cache_spec.block_size % hash_block_size == 0
+            for g in kv_cache_config.kv_cache_groups
+        ):
+            logger.error(
+                "GLM53-PORT: HybridKVCacheCoordinator block sizes: %s, "
+                "hash_block_size=%s",
+                [(type(g.kv_cache_spec).__name__, g.kv_cache_spec.block_size)
+                 for g in kv_cache_config.kv_cache_groups],
+                hash_block_size,
+            )
         assert all(
             g.kv_cache_spec.block_size % hash_block_size == 0
             for g in kv_cache_config.kv_cache_groups
