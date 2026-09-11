@@ -27,6 +27,9 @@ class MLAModules:
     is_sparse: bool
     topk_indices_buffer: torch.Tensor | None
     indexer_rotary_emb: torch.nn.Module | None = None
+    # GLM53-PORT: optional unfused q_a_proj (and kv_a_proj_with_mqa) for
+    # compressed-tensors GLM-5.3-Flash loading (cyankiwi glm53-flash-ct).
+    q_a_proj: torch.nn.Module | None = None
 
 
 # --8<-- [start:multi_head_latent_attention]
@@ -64,6 +67,7 @@ class MultiHeadLatentAttentionWrapper(PluggableLayer):
         cache_config: CacheConfig | None = None,
         quant_config: QuantizationConfig | None = None,
         prefix: str = "",
+        skip_topk: bool = False,
     ) -> None:
         super().__init__()
         self.hidden_size = hidden_size
@@ -75,7 +79,12 @@ class MultiHeadLatentAttentionWrapper(PluggableLayer):
         self.kv_lora_rank = kv_lora_rank
         self.num_heads = num_heads
         self.fused_qkv_a_proj = mla_modules.fused_qkv_a_proj
+        # GLM53-PORT
+        self.q_a_proj = mla_modules.q_a_proj
         self.kv_a_proj_with_mqa = mla_modules.kv_a_proj_with_mqa
+        # Whether to skip top-k token selection in this pass (MTP iterative
+        # sharing); a previous layer writes the shared topk_indices_buffer.
+        self.skip_topk = skip_topk
         self.q_a_layernorm = mla_modules.q_a_layernorm
         self.q_b_proj = mla_modules.q_b_proj
         self.q_proj = mla_modules.q_proj
@@ -120,9 +129,6 @@ class MultiHeadLatentAttentionWrapper(PluggableLayer):
         kv_lora = None
 
         if self.q_lora_rank is not None:
-            assert self.fused_qkv_a_proj is not None, (
-                "fused_qkv_a_proj is required when q_lora_rank is not None"
-            )
             assert self.q_a_layernorm is not None, (
                 "q_a_layernorm is required when q_lora_rank is not None"
             )
@@ -130,11 +136,37 @@ class MultiHeadLatentAttentionWrapper(PluggableLayer):
                 "q_b_proj is required when q_lora_rank is not None"
             )
 
-            qkv_lora = self.fused_qkv_a_proj(hidden_states)[0]
-            q_c, kv_lora = qkv_lora.split(
-                [self.q_lora_rank, self.kv_lora_rank + self.qk_rope_head_dim],
-                dim=-1,
-            )
+            if self.fused_qkv_a_proj is not None:
+                qkv_lora = self.fused_qkv_a_proj(hidden_states)[0]
+                q_c, kv_lora = qkv_lora.split(
+                    [self.q_lora_rank, self.kv_lora_rank + self.qk_rope_head_dim],
+                    dim=-1,
+                )
+            elif self.q_a_proj is not None and self.kv_a_proj_with_mqa is not None:
+                # GLM53-PORT: CT loads q_a/kv_a as separate projections.
+                q_c = self.q_a_proj(hidden_states)[0]
+                kv_lora = self.kv_a_proj_with_mqa(hidden_states)[0]
+                expected_width = self.kv_lora_rank + self.qk_rope_head_dim
+                if (
+                    self.rotary_emb is None
+                    and self.qk_rope_head_dim > 0
+                    and kv_lora.shape[-1] == self.kv_lora_rank
+                ):
+                    kv_lora = torch.nn.functional.pad(
+                        kv_lora, (0, self.qk_rope_head_dim)
+                    )
+                elif kv_lora.shape[-1] != expected_width:
+                    raise ValueError(
+                        "Unfused kv_a_proj_with_mqa output width must equal "
+                        f"kv_lora_rank ({self.kv_lora_rank}) for NoPE or "
+                        "kv_lora_rank + qk_rope_head_dim "
+                        f"({expected_width}); got {kv_lora.shape[-1]}"
+                    )
+            else:
+                raise ValueError(
+                    "q-LoRA requires fused_qkv_a_proj or both q_a_proj and "
+                    "kv_a_proj_with_mqa"
+                )
             q_c = self.q_a_layernorm(q_c)
             q = self.q_b_proj(q_c)[0]
         else:
@@ -159,7 +191,9 @@ class MultiHeadLatentAttentionWrapper(PluggableLayer):
                 positions, q[..., self.qk_nope_head_dim :], k_pe
             )
 
-        if self.indexer and self.is_sparse:
+        if self.indexer and self.is_sparse and not self.skip_topk:
+            # GLM53-PORT: skip_topk support (GLM-5.3 MTP shares the first
+            # iteration's topk across draft iterations).
             _topk_indices = self.indexer(
                 hidden_states, q_c, positions, self.indexer_rope_emb
             )
