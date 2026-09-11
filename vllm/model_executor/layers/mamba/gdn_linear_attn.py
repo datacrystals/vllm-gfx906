@@ -1175,3 +1175,11 @@ def fused_gdn_gating(
         num_warps=1,
     )
     return g, beta_output
+
+# --- gfx906 GDN fallback anchor (installed when env set; safe at tail end) ---
+# Vendored form: imports from vllm.gfx906_ext instead of the out-of-repo
+# patches/gdn path. Same env gate and semantics as the legacy anchor.
+if __import__("os").environ.get("VLLM_GDN_GFX906_AUTOPATCH") == "1":
+    from vllm.gfx906_ext import gdn_gfx906_fallback as _fb
+    _fb.install_gfx906_gdn_fallback()
+    print("[GDN gfx906 fallback installed in mamba/gdn_linear_attn]", flush=True)
