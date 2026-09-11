@@ -57,7 +57,7 @@ endif()
 # versions are derived from docker/Dockerfile.rocm
 #
 set(TORCH_SUPPORTED_VERSION_CUDA "2.11.0")
-set(TORCH_SUPPORTED_VERSION_ROCM "2.11.0")
+set(TORCH_SUPPORTED_VERSION_ROCM "2.9.0")
 
 #
 # Try to find python package with an executable that exactly matches
