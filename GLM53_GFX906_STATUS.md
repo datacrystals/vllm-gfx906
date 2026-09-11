@@ -34,6 +34,29 @@ This doc is the resume point. Read EXPERIMENTS.md chronology for full history; K
   reasoning_effort=max) — or serve with a reasoning parser.
 
 ## Kernel/opts inventory (env-gated; OFF = safe defaults)
+
+### Packaged runtime extensions (vllm.gfx906_ext)
+Since the vendor-pack commit (2026-09-11), the runtime patch modules are part
+of the branch under `vllm/gfx906_ext/` — the branch no longer needs
+`/data/vllm-gfx906-dsv4/patches/gdn/` on PYTHONPATH. The patches dir is
+SUPERSEDED and kept on disk for provenance only. Modules and their arming envs
+(all default OFF; anchors at the tails of `hy_v3.py`, `glm5next/__init__.py`,
+and `mamba/gdn_linear_attn.py`):
+- `gfx906_gemv` — skinny fp16 GEMV (M<=8): `VLLM_GFX906_GEMV=1` (anchors in
+  hy_v3.py + glm5next/__init__.py).
+- `gdn_gfx906_fallback` — fp32 torch GDN prefill/decode fallback incl. NAN
+  probe + MLP fixes: `VLLM_GDN_GFX906_AUTOPATCH=1` anchors (hy_v3.py,
+  gdn_linear_attn.py) install it; enablement itself stays
+  `VLLM_GDN_GFX906_FALLBACK=auto|0|1`. Sub-envs handled inside:
+  `VLLM_GDN_GFX906_FUSED_DECODE=1`, `VLLM_GDN_GFX906_NAN_PROBE=1`,
+  `VLLM_GFX906_MLP_FP32_DOWN=1`, `VLLM_GFX906_MLP_CLAMP`.
+- `gdn_decode_fused` — fused single-kernel GDN decode recurrence
+  (`VLLM_GDN_GFX906_FUSED_DECODE=1`, installed by the fallback).
+- `prof_patch` — trigger-file torch.profiler harness (`VLLM_GFX906_PROF_DIR`).
+- `glm53_mtp_patch` + `glm53_mtp_main` — GLM-5.3 MTP glue, PARKED/optional
+  (`VLLM_GFX906_GLM53_MTP=1`, `VLLM_GFX906_GLM53_MTP_FULL_CG=1`);
+  driver: `python -m vllm.gfx906_ext.glm53_mtp_main serve ...`.
+
 - VLLM_GFX906_GEMV=1 — gfx906 skinny fp16 GEMV (microbench-verified; GLM
   decode showed no gain — prefill-side; keep on for Hy3).
 - VLLM_GLM53_MHC_FUSED=1 — fused mHC pre/post Triton (11.9x/1.4x offline,
