@@ -236,6 +236,12 @@ class ModelArchConfigConvertorBase:
             "pangu_ultra_moe",
             "pangu_ultra_moe_mtp",
             "bailing_hybrid",
+            # GLM53-PORT: GLM-5.3's sparse layers are MLA (kv_lora_rank +
+            # qk_rope_head_dim); without these entries use_mla is False and
+            # _align_hybrid_block_size divides by head_size=0 (config ships
+            # head_dim: 0 for NoPE).
+            "glm5_next",
+            "glm5_next_text",
         ):
             # check is deepseek_v4 model
             if hasattr(self.hf_text_config, "compress_ratios"):
