@@ -110,7 +110,22 @@ class CompressedTensorsMoEMethod(FusedMoEMethodBase):
                     raise ValueError(
                         "WNA16MoE is not supported with actorder=group/dynamic."
                     )
-                logger.info_once("Using CompressedTensorsWNA16MoEMethod")
+                # GLM53-PORT: on ROCm all CT pack-quant MoE routes here
+                # (marlin is CUDA-only in this fork). The triton
+                # fused_moe_kernel_gptq_awq kernel has a has_zp path, so
+                # asymmetric checkpoints (GLM-5.3: int4 g32 asym) are
+                # supported by CompressedTensorsWNA16MoEMethod since
+                # commit 4e235c9ed6; log the asym route explicitly.
+                if not weight_quant.symmetric:
+                    logger.info_once(
+                        "GLM53-PORT: asymmetric pack-quant int%d g%d MoE on "
+                        "ROCm; routing to CompressedTensorsWNA16MoEMethod "
+                        "(triton moe_wna16 has_zp path)",
+                        weight_quant.num_bits,
+                        weight_quant.group_size,
+                    )
+                else:
+                    logger.info_once("Using CompressedTensorsWNA16MoEMethod")
                 return CompressedTensorsWNA16MoEMethod(
                     weight_quant, input_quant, layer.moe_config
                 )
