@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     LD_LIBRARY_PATH: str | None = None
     VLLM_ROCM_SLEEP_MEM_CHUNK_SIZE: int = 256
     VLLM_ROCM_MLA_SPARSE_FP16: bool = False
+    VLLM_GLM53_INDEXER_FP16: bool = True
     VLLM_ROCM_MLA_SPARSE_FP16_TRITON: bool = False
     VLLM_FP16_MQA_TORCH_HEAD_CHUNK_SIZE: int = 4
     VLLM_ROCM_MLA_SPARSE_CHUNK_SIZE: int = 512 # Note: 512 is the sweet-spot for MI50 rocBLAS performance
@@ -1026,6 +1027,13 @@ environment_variables: dict[str, Callable[[], Any]] = {
     ),
     "VLLM_ROCM_MLA_SPARSE_FP16": lambda: (
         os.getenv("VLLM_ROCM_MLA_SPARSE_FP16", "False").lower() in ("true", "1")
+    ),
+    # GLM53-PORT: gfx906 has no fp8 compute; the GLM-5.3-Flash sparse indexer
+    # runs its K cache and logits in fp16 by default on ROCm (skipping the
+    # upstream Hadamard+fp8 quant step, same precedent as
+    # VLLM_ROCM_MLA_SPARSE_FP16 for DSV4). Set to 0 only for A/B experiments.
+    "VLLM_GLM53_INDEXER_FP16": lambda: (
+        os.getenv("VLLM_GLM53_INDEXER_FP16", "True").lower() in ("true", "1")
     ),
     "VLLM_ROCM_MLA_SPARSE_FP16_TRITON": lambda: (
         os.getenv("VLLM_ROCM_MLA_SPARSE_FP16_TRITON", "False").lower() in ("true", "1")

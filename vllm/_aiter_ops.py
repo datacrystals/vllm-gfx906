@@ -14,6 +14,11 @@ from vllm.v1.attention.ops.rocm_aiter_mla_sparse import (
     rocm_aiter_sparse_attn_indexer,
     rocm_aiter_sparse_attn_indexer_fake,
 )
+# GLM53-PORT: fp16 kpool indexer op (GLM-5.3-Flash) for gfx906.
+from vllm.v1.attention.ops.rocm_aiter_mla_sparse_kpool import (
+    rocm_aiter_sparse_attn_indexer_kpool,
+    rocm_aiter_sparse_attn_indexer_kpool_fake,
+)
 
 try:
     import pandas as pd
@@ -1526,6 +1531,15 @@ class rocm_aiter_ops:
                 op_func=rocm_aiter_sparse_attn_indexer,
                 mutates_args=["topk_indices_buffer"],
                 fake_impl=rocm_aiter_sparse_attn_indexer_fake,
+                dispatch_key=current_platform.dispatch_key,
+            )
+
+            # GLM53-PORT
+            direct_register_custom_op(
+                op_name="rocm_aiter_sparse_attn_indexer_kpool",
+                op_func=rocm_aiter_sparse_attn_indexer_kpool,
+                mutates_args=["kv_cache", "topk_indices_buffer", "tail_kv_cache"],
+                fake_impl=rocm_aiter_sparse_attn_indexer_kpool_fake,
                 dispatch_key=current_platform.dispatch_key,
             )
 
