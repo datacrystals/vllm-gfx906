@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
+import os
+
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -144,6 +146,29 @@ class Glm5NextIndexerCache(DeepseekV32IndexerCache):
         )
         # GLM53-PORT: compress_ratio plays upstream's tokens_per_state role.
         return replace(spec, compress_ratio=self._index_kpool)
+
+    def get_attn_backend(self):
+        # GLM53-PORT long-ctx fix: on ROCm the fp16 kpool indexer keeps its
+        # cache pages at MANAGER-block granularity while the shared attention
+        # group would otherwise kernel-split the block table 4x (kernel block
+        # 64 over manager block 256) — the fork's fp16 kpool gather/paged-
+        # logits kernels misread kernel-split block ids (4*b+k) as page ids
+        # into a num_blocks-page cache, which is an all-rank OOB once any
+        # manager block id >= num_blocks/4 is allocated (the 17.9k-ctx /
+        # max-model-len 32768 memfault). Glm5NextROCmIndexerBackend advertises
+        # 256 as supported so the group block table stays manager-granular.
+        # VLLM_GLM53_INDEXER_UNSPLIT=0 reverts to the upstream (split) backend.
+        _unsplit = os.environ.get("VLLM_GLM53_INDEXER_UNSPLIT", "1").lower() in (
+            "true",
+            "1",
+        )
+        if current_platform.is_rocm() and _unsplit:
+            from vllm.v1.attention.backends.mla.indexer import (
+                Glm5NextROCmIndexerBackend,
+            )
+
+            return Glm5NextROCmIndexerBackend
+        return super().get_attn_backend()
 
 
 class Glm5NextTailCache(DeepseekV32IndexerCache):

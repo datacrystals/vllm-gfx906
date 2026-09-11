@@ -165,6 +165,27 @@ class DeepseekV4IndexerBackend(DeepseekV32IndexerBackend):
         return [256]
 
 
+class Glm5NextROCmIndexerBackend(DeepseekV32IndexerBackend):
+    """GLM53-PORT: gfx906 fp16 kpool indexer backend.
+
+    The fork keeps compressed kpool pages at MANAGER-block granularity
+    (gpu_model_runner._reshape_kv_cache_tensors, GLM53 long-ctx fix). If the
+    backend only advertises {1, 64}, the shared attention group resolves
+    kernel_block_size=64 and the group's block table is kernel-split
+    (block ids 4*b+k), which the fork's fp16 kpool gather/paged-logits
+    kernels misinterpret as page ids into a num_blocks-page cache -> OOB
+    once the allocator hands out any manager block id >= num_blocks/4
+    (observed: all-rank memfault on a ~17.9k-token prompt at
+    --max-model-len 32768). Accepting the manager block size (256) lets
+    select_common_block_size() keep the group block table UNSPLIT.
+    Cache-view geometry is unchanged ([num_blocks, 64 pools, 128]).
+    """
+
+    @staticmethod
+    def get_supported_kernel_block_sizes() -> list[int | MultipleOf]:
+        return [1, 64, 256]
+
+
 # ---------------------------------------------------------------------------
 # GLM53-PORT: kpool tail cache backend + metadata builder.
 # Vendored from upstream vLLM main (GLM-5.3-Flash, PR #53906) and adapted to
