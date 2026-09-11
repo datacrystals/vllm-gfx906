@@ -174,6 +174,17 @@ class ROCMAiterMLASparseMetadataBuilder(
         self.num_heads = self.model_config.get_num_attention_heads(parallel_config)
         self.mla_dims = get_mla_dims(self.model_config)
         self.topk_tokens = vllm_config.model_config.hf_config.index_topk
+        # GLM53-PORT: GLM-5.3 kpool expand (+ always-select tail) yields
+        # index_topk + index_kpool - 1 indices per row, 128-aligned. The
+        # global-index conversion and ragged fetch walk the whole padded
+        # buffer width; advertise the padded width here.
+        _index_kpool = getattr(
+            vllm_config.model_config.hf_config, "index_kpool", None
+        ) or 1
+        if _index_kpool > 1:
+            self.topk_tokens = (
+                (self.topk_tokens + _index_kpool - 1 + 127) // 128
+            ) * 128
         self.topk_tokens_tensor = torch.tensor(
             [self.topk_tokens], device=device, dtype=torch.int32
         )
