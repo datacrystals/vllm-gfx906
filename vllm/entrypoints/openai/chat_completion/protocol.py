@@ -62,6 +62,17 @@ class ChatMessage(OpenAIBaseModel):
 
     # vLLM-specific fields that are not in OpenAI spec
     reasoning: str | None = None
+    # DeepSeek-style alias so standard clients (reasoning_content) work too;
+    # mirrored from `reasoning` at validation time.
+    reasoning_content: str | None = None
+
+    @model_validator(mode="after")
+    def _mirror_reasoning_content(self):
+        if self.reasoning_content is None and self.reasoning is not None:
+            self.reasoning_content = self.reasoning
+        elif self.reasoning is None and self.reasoning_content is not None:
+            self.reasoning = self.reasoning_content
+        return self
 
 
 class ChatCompletionLogProb(OpenAIBaseModel):

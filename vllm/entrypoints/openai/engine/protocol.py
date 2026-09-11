@@ -259,7 +259,17 @@ class DeltaMessage(OpenAIBaseModel):
     role: str | None = None
     content: str | None = None
     reasoning: str | None = None
+    # DeepSeek-style alias; mirrored from `reasoning` at validation time.
+    reasoning_content: str | None = None
     tool_calls: list[DeltaToolCall] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _mirror_reasoning_content(self):
+        if self.reasoning_content is None and self.reasoning is not None:
+            self.reasoning_content = self.reasoning
+        elif self.reasoning is None and self.reasoning_content is not None:
+            self.reasoning = self.reasoning_content
+        return self
 
 
 class GenerationError(Exception):
