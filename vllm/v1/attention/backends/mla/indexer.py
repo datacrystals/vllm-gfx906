@@ -203,6 +203,16 @@ class KpoolTailBackend(DeepseekV32IndexerBackend):
         return (num_blocks, num_kv_heads, block_size, head_size)
 
     @staticmethod
+    def get_kv_cache_stride_order(
+        include_num_layers_dimension: bool = False,
+    ) -> tuple[int, ...]:
+        # GLM53-PORT: 4-D shape (blocks, K/gate, kpool, head_dim) — the
+        # inherited indexer stride order is 3-D and trips the reshape assert.
+        if include_num_layers_dimension:
+            return (0, 1, 2, 3, 4)
+        return (0, 1, 2, 3)
+
+    @staticmethod
     def get_builder_cls() -> type["KpoolTailMetadataBuilder"]:
         return KpoolTailMetadataBuilder
 
