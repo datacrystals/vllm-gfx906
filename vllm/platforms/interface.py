@@ -565,6 +565,24 @@ class Platform:
         if mamba_page_size == 0:
             return
 
+        # GLM53-PORT: GLM-5.3 (kpool sparse-MLA + KDA hybrid) must NOT have
+        # its attention block raised to >= the KDA mamba state page. In this
+        # fork the hybrid KV groups are per-layer/per-group tensors with NO
+        # upstream offset packing, so the attn-page >= mamba-page uniform-page
+        # invariant does not apply. Raising 256 -> 768 would break the sparse
+        # decode fast path, which hard-asserts a 64-entry pool page
+        # (deepgemm_fp16_paged_mqa_logits_stage1: block_size//index_kpool==64).
+        if getattr(model_config.hf_text_config, "index_kpool", None):
+            if cache_config.mamba_cache_mode == "align":
+                cache_config.mamba_block_size = cache_config.block_size
+            logger.info_once(
+                "GLM53-PORT: skipping hybrid attention/mamba block alignment "
+                "for kpool sparse-MLA model (per-group KV tensors); keeping "
+                "block_size=%d for the 64-entry kpool page fast path.",
+                cache_config.block_size,
+            )
+            return
+
         # mamba_block_size here should either be user specified value or None
         mamba_block_size = (
             cache_config.mamba_block_size
