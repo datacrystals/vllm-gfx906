@@ -46,9 +46,13 @@ class CompressedTensorsWNA16MoEMethod(CompressedTensorsMoEMethod):
         self.group_size = weight_quant.group_size
         # grouped actorder isn't supported by this kernel
         assert weight_quant.actorder != "group"
-        assert weight_quant.symmetric, (
-            "Only symmetric quantization is supported for MoE"
-        )
+        # GLM53-PORT: asymmetric pack-quant int4 support (cyankiwi GLM
+        # checkpoints are int4 g32 ASYM). The fork's moe_wna16 triton kernel
+        # already has a has_zp path; we register/load CT zero points and
+        # repack them in process_weights_after_loading. CT pack_to_int32
+        # stores values as (v + 8) nibbles; the +8 offsets cancel between
+        # weight and zp, so the kernel's (q - zp) * s semantics hold as-is.
+        self.symmetric = weight_quant.symmetric
 
     def create_weights(
         self,
@@ -131,6 +135,35 @@ class CompressedTensorsWNA16MoEMethod(CompressedTensorsMoEMethod):
         layer.register_parameter("w13_weight_shape", w13_weight_shape)
         set_weight_attrs(w13_weight_shape, extra_weight_attrs)
 
+        if not self.symmetric:
+            # GLM53-PORT: CT asym zero points, packed 8x int4 per int32 along
+            # the output dim (packed_dim=0): gate/up [N_proj/8, K/g], down
+            # [H/8, I/g]. Registered in the transposed loader layout so the
+            # generic FusedMoE loader shards them exactly like w13/w2 scales.
+            w13_zero_point = torch.nn.Parameter(
+                torch.empty(
+                    num_experts,
+                    hidden_size // self.group_size,
+                    w13_num_shards * intermediate_size_per_partition // 8,
+                    dtype=torch.int32,
+                ),
+                requires_grad=False,
+            )
+            layer.register_parameter("w13_weight_zero_point", w13_zero_point)
+            set_weight_attrs(w13_weight_zero_point, extra_weight_attrs)
+
+            w2_zero_point = torch.nn.Parameter(
+                torch.empty(
+                    num_experts,
+                    intermediate_size_per_partition // self.group_size,
+                    hidden_size // 8,
+                    dtype=torch.int32,
+                ),
+                requires_grad=False,
+            )
+            layer.register_parameter("w2_weight_zero_point", w2_zero_point)
+            set_weight_attrs(w2_zero_point, extra_weight_attrs)
+
         w13_g_idx = torch.nn.Parameter(
             torch.empty(
                 num_experts,
@@ -195,6 +228,26 @@ class CompressedTensorsWNA16MoEMethod(CompressedTensorsMoEMethod):
             layer.w2_weight_scale.transpose(1, 2).contiguous(), requires_grad=False
         )
 
+        if not self.symmetric:
+            # GLM53-PORT: repack CT asym zero points to the moe_wna16 kernel
+            # zp layout: uint8 [E, N/2, K/g], a byte holding n=2m (low nibble)
+            # and n=2m+1 (high nibble). Loader layout is [E, K/g, N/8] int32:
+            # int32 at col c covers outputs n in [8c, 8c+8); its byte j holds
+            # n=8c+2j/8c+2j+1, i.e. flattened byte index m=4c+j == n//2, so a
+            # uint8 view + transpose lands exactly in kernel order.
+            layer.w13_weight_zero_point = torch.nn.Parameter(
+                layer.w13_weight_zero_point.data.view(torch.uint8)
+                .transpose(1, 2)
+                .contiguous(),
+                requires_grad=False,
+            )
+            layer.w2_weight_zero_point = torch.nn.Parameter(
+                layer.w2_weight_zero_point.data.view(torch.uint8)
+                .transpose(1, 2)
+                .contiguous(),
+                requires_grad=False,
+            )
+
     def get_fused_moe_quant_config(
         self, layer: torch.nn.Module
     ) -> FusedMoEQuantConfig | None:
@@ -208,8 +261,10 @@ class CompressedTensorsWNA16MoEMethod(CompressedTensorsMoEMethod):
         return config_builder(
             w1_scale=layer.w13_weight_scale,
             w2_scale=layer.w2_weight_scale,
-            w1_zp=None,
-            w2_zp=None,
+            # GLM53-PORT: CT asym zero points (uint8 [E, N/2, K/g] after
+            # process_weights_after_loading); None for symmetric ckpts.
+            w1_zp=getattr(layer, "w13_weight_zero_point", None),
+            w2_zp=getattr(layer, "w2_weight_zero_point", None),
             block_shape=[0, self.group_size],
         )
 
