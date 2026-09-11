@@ -4,6 +4,19 @@ Branch: `glm53-gfx906` @ /data/vllm-gfx906-dsv4/vllm (fork: github.com/ai-infos/
 This doc is the resume point. Read EXPERIMENTS.md chronology for full history; KDA_TAIL_PLAN.md
 (agent-23 kernel engineering) and MTP53_PLAN.md (agent-24 MTP glue) for the deep dives.
 
+## Final shipped numbers (2026-09-11 late, branch glm53-gfx906)
+- Ship config (run_glm53.sh, 8k ctx, util 0.94, FULL graphs, fp16):
+  GEMV=1, MHC_FUSED=1, ROUTER_FUSED=0, MTP off.
+- bench_write.py (same protocol as the Hy3/Qwen numbers): 500-tok end-to-end
+  11.48 tok/s; 8k-ctx 8.76; creative 700-tok samples **15.22-15.29 tok/s**
+  (decode-rate after warmup — the >15 goal is met on the samples protocol;
+  honest end-to-end for mid-size requests is ~11.5-11.9).
+- Quality: 4 writing samples in /data/llmbench/glm53/final-8k-ship/*.txt;
+  thinking-block leak mitigated client-side (clear_thinking or template kwarg).
+- 32k variant (run_glm53_32k.sh) boots fine; a serve-wide memfault was observed
+  once *during a long-prefill burst while a bench ran* — treat 32k as
+  experimental; 8k is the verified envelope.
+
 ## Verified works (on a clean box)
 - Serving: `/data/vllm-gfx906-dsv4/run_glm53.sh` (TP8, 8k ctx, util 0.94, fp16,
   block 256, max-num-seqs 2, FULL cudagraphs mode-0, no prefix caching,
