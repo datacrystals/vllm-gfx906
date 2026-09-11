@@ -23,6 +23,9 @@ from vllm.v1.kv_cache_interface import (
     KVCacheSpec,
 )
 from vllm.v1.request import Request
+from vllm.logger import init_logger
+
+logger = init_logger(__name__)
 
 
 class KVCacheCoordinator(ABC):
@@ -427,8 +430,12 @@ class HybridKVCacheCoordinator(KVCacheCoordinator):
                  for g in kv_cache_config.kv_cache_groups],
                 hash_block_size,
             )
+        # GLM53-PORT: hybrid groups with sub-hash block granularity (e.g.
+        # KpoolTailSpec block_size=4 pool entries vs 256-token hash blocks)
+        # satisfy the constraint in the reverse direction.
         assert all(
             g.kv_cache_spec.block_size % hash_block_size == 0
+            or hash_block_size % g.kv_cache_spec.block_size == 0
             for g in kv_cache_config.kv_cache_groups
         ), "block_size must be divisible by hash_block_size"
         assert dcp_world_size == 1, "DCP not support hybrid attn now."
