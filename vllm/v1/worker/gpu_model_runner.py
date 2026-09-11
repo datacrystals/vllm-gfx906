@@ -6600,7 +6600,16 @@ class GPUModelRunner(
 
                     # For MLA with compression, storage_block_size != block_size
                     if kv_cache_spec.storage_block_size != kv_cache_spec.block_size:
-                        shape_block_size = kv_cache_spec.storage_block_size
+                        # GLM53-PORT: when the manager block is further split
+                        # into kernel blocks (kernel < block), the compressed
+                        # (storage) entries must be divided by the same split
+                        # factor — otherwise the target shape overshoots the
+                        # allocated tensor by num_blocks_per_kv_block (e.g.
+                        # GLM-5.3 kpool indexer: storage 64 pools per block,
+                        # backend kernel block 64 -> 16 pools per kernel block).
+                        split = kv_cache_spec.block_size // kernel_block_size
+                        assert kv_cache_spec.storage_block_size % split == 0
+                        shape_block_size = kv_cache_spec.storage_block_size // split
                     else:
                         shape_block_size = kernel_block_size
 
