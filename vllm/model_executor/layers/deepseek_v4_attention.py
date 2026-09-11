@@ -7,9 +7,15 @@ DeepseekV4 MLA Attention Layer
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
+import os
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+_SEQ = os.environ.get("DSV4_SEQ", "0") == "1"
+
+
 from transformers import DeepseekV2Config, DeepseekV3Config
 
 from vllm.model_executor.layers.linear import (
@@ -32,6 +38,7 @@ if TYPE_CHECKING:
         DeepseekSparseSWAMetadata,
     )
 
+import vllm.envs as envs
 from vllm.config import (
     CacheConfig,
     VllmConfig,
@@ -39,6 +46,7 @@ from vllm.config import (
 )
 from vllm.distributed import get_tensor_model_parallel_world_size
 from vllm.forward_context import ForwardContext, get_forward_context
+from vllm.platforms import current_platform
 from vllm.logger import init_logger
 from vllm.model_executor.custom_op import PluggableLayer
 from vllm.model_executor.layers.attention_layer_base import AttentionLayerBase
@@ -67,6 +75,13 @@ from vllm.v1.attention.ops.flashmla import (
     flash_mla_sparse_fwd,
     flash_mla_with_kvcache,
 )
+try:
+    from vllm.v1.attention.backends.mla.rocm_aiter_mla_sparse import (
+        reference_mla_sparse_prefill,
+    )
+    _HAS_ROCM_MLA_SPARSE = True
+except Exception:
+    _HAS_ROCM_MLA_SPARSE = False
 from vllm.v1.kv_cache_interface import KVCacheSpec, MLAAttentionSpec
 from vllm.v1.worker.workspace import current_workspace_manager
 
@@ -76,6 +91,44 @@ logger = init_logger(__name__)
 # workspace allocated at _forward_prefill (and the matching profile-time
 # reservation in attention_impl's dummy-run branch).
 PREFILL_CHUNK_SIZE = 4
+
+
+def _gather_k_cache_fp16(
+    out: torch.Tensor,
+    k_cache: torch.Tensor,
+    seq_lens: torch.Tensor,
+    gather_lens: torch.Tensor | None,
+    block_table: torch.Tensor,
+    block_size: int,
+    offset: int,
+) -> None:
+    """Simple PyTorch gather for FP16/bf16 paged KV cache.
+
+    Args:
+        out: [num_reqs, max_tokens, head_dim] output buffer
+        k_cache: [num_blocks, block_size, head_dim] paged cache
+        seq_lens: [num_reqs] sequence lengths
+        gather_lens: [num_reqs] gather lengths (None = gather all)
+        block_table: [num_reqs, max_blocks_per_seq] block table
+        block_size: int cache block size
+        offset: int offset in output buffer to write to
+    """
+    num_reqs = seq_lens.shape[0]
+    device = out.device
+    for batch_idx in range(num_reqs):
+        seq_len = int(seq_lens[batch_idx])
+        if gather_lens is not None:
+            gather_len = int(gather_lens[batch_idx])
+        else:
+            gather_len = seq_len
+        start_pos = seq_len - gather_len
+        if gather_len <= 0:
+            continue
+        positions = torch.arange(start_pos, seq_len, device=device, dtype=torch.int64)
+        block_ids = positions // block_size
+        block_offsets = positions % block_size
+        physical_blocks = block_table[batch_idx, block_ids]
+        out[batch_idx, offset : offset + gather_len] = k_cache[physical_blocks, block_offsets]
 
 
 @dataclass
@@ -199,6 +252,7 @@ class DeepseekV4MultiHeadLatentAttentionWrapper(PluggableLayer):
         assert cap is not None, "DeepseekV4 attention requires a CUDA device"
         self._einsum_recipe = (1, 128, 128) if cap.major <= 9 else (1, 1, 128)
         self._tma_aligned_scales = cap.major >= 10
+        self.is_rocm = current_platform.is_rocm()
 
         self.rotary_emb = mla_modules.rotary_emb
         self.indexer_rotary_emb = mla_modules.indexer_rotary_emb
@@ -210,12 +264,17 @@ class DeepseekV4MultiHeadLatentAttentionWrapper(PluggableLayer):
         self.q_head_norm = RMSNorm(head_dim, eps=self.eps, has_weight=False)
 
         # TODO(yifan): currently hardcoded for FP8 sparse, make it more generic
-        head_bytes = (
-            self.nope_head_dim  # 448 fp8 NoPE
-            + self.rope_head_dim * 2  # 64 bf16 RoPE
-            + self.nope_head_dim // 64  # 7B scale factors
-            + 1  # 1B pad
-        )
+        if self.is_rocm and envs.VLLM_ROCM_MLA_SPARSE_FP16:
+            head_bytes = self.head_dim * 2  # fp16
+            swa_dtype = torch.float16
+        else:
+            head_bytes = (
+                self.nope_head_dim  # 448 fp8 NoPE
+                + self.rope_head_dim * 2  # 64 bf16 RoPE
+                + self.nope_head_dim // 64  # 7B scale factors
+                + 1  # 1B pad
+            )
+            swa_dtype = torch.uint8
 
         self.aux_stream = mla_modules.aux_stream
         self.ln_events = [torch.cuda.Event(), torch.cuda.Event()]
@@ -224,7 +283,7 @@ class DeepseekV4MultiHeadLatentAttentionWrapper(PluggableLayer):
         self.swa_cache_layer = DeepseekV4SWACache(
             head_dim=self.head_dim,
             window_size=self.window_size,
-            dtype=torch.uint8,
+            dtype=swa_dtype,
             prefix=f"{prefix}.swa_cache",
             cache_config=cache_config,
         )
@@ -269,6 +328,7 @@ class DeepseekV4MultiHeadLatentAttentionWrapper(PluggableLayer):
                 rotate=True,
                 prefix=f"{prefix}.compressor",
                 k_cache_prefix=self.mla_attn.prefix,
+                quant_config=quant_config,
             )
 
     def forward(
@@ -299,6 +359,15 @@ class DeepseekV4MultiHeadLatentAttentionWrapper(PluggableLayer):
             self.layer_name,
         )
         o = o_padded[:, : self.n_local_heads, :]
+
+        if self.is_rocm:
+            # ROCm fallback: inverse RoPE in bf16 + regular matmul (no FP8)
+            o = self._apply_inverse_rope(
+                o, positions, self.rotary_emb.cos_sin_cache
+            )
+            o_reshaped = o.view(num_tokens, -1)
+            z = self.wo_a(o_reshaped)
+            return self.wo_b(z)
 
         # O projection: inverse RoPE + FP8 quant + einsum + wo_b
         o_fp8, o_scale = fused_inv_rope_fp8_quant(
@@ -332,6 +401,37 @@ class DeepseekV4MultiHeadLatentAttentionWrapper(PluggableLayer):
 
         return self.wo_b(z.flatten(1))
 
+    def _apply_inverse_rope(
+        self,
+        o: torch.Tensor,
+        positions: torch.Tensor,
+        cos_sin_cache: torch.Tensor,
+    ) -> torch.Tensor:
+        """Pure-PyTorch inverse RoPE for ROCm fallback."""
+        num_tokens, n_heads, head_dim = o.shape
+        rope_start = self.nope_head_dim
+        rope_dim = self.rope_head_dim
+
+        if rope_dim == 0:
+            return o
+
+        o_nope = o[..., :rope_start]
+        o_rope = o[..., rope_start:]
+
+        cs = cos_sin_cache[positions]  # (num_tokens, rope_dim)
+        cos = cs[:, : rope_dim // 2].unsqueeze(1)  # (num_tokens, 1, rope_dim//2)
+        sin = cs[:, rope_dim // 2 :].unsqueeze(1)  # (num_tokens, 1, rope_dim//2)
+
+        x1 = o_rope[..., 0::2]  # (num_tokens, n_heads, rope_dim//2)
+        x2 = o_rope[..., 1::2]  # (num_tokens, n_heads, rope_dim//2)
+
+        # Inverse RoPE: [y0, y1] -> [y0*cos + y1*sin, -y0*sin + y1*cos]
+        y1 = x1 * cos + x2 * sin
+        y2 = -x1 * sin + x2 * cos
+
+        o_rope_inv = torch.stack([y1, y2], dim=-1).flatten(-2)
+        return torch.cat([o_nope, o_rope_inv], dim=-1)
+
     def attention_impl(
         self,
         hidden_states: torch.Tensor,
@@ -355,7 +455,18 @@ class DeepseekV4MultiHeadLatentAttentionWrapper(PluggableLayer):
         # Overlap kv_insert with whichever of indexer/compressor is present.
         # Indexer implies compressor; when both exist, compressor rides on the
         # aux stream alongside kv_insert so the heavy indexer owns default.
-        if self.indexer is not None:
+        if _SEQ:
+            # Sequential path (debug/A-B): no aux stream overlap.
+            if self.indexer is not None:
+                self._fused_qnorm_rope_kv_insert(q, kv, positions, attn_metadata)
+                self.compressor(hidden_states, positions, self.rotary_emb)
+                self.indexer(hidden_states, qr, positions, self.indexer_rotary_emb)
+            elif self.compressor is not None:
+                self.compressor(hidden_states, positions, self.rotary_emb)
+                self._fused_qnorm_rope_kv_insert(q, kv, positions, attn_metadata)
+            else:
+                self._fused_qnorm_rope_kv_insert(q, kv, positions, attn_metadata)
+        elif self.indexer is not None:
             indexer = self.indexer
             # Local ref so the closure keeps a non-None type for mypy.
             assert self.compressor is not None
@@ -402,7 +513,7 @@ class DeepseekV4MultiHeadLatentAttentionWrapper(PluggableLayer):
             )
             M = N + sub.window_size + sub.max_num_batched_tokens
             current_workspace_manager().get_simultaneous(
-                ((PREFILL_CHUNK_SIZE, M, q.shape[-1]), torch.bfloat16),
+                ((PREFILL_CHUNK_SIZE, M, q.shape[-1]), torch.float16),
             )
             out.zero_()
             return
@@ -435,6 +546,14 @@ class DeepseekV4MultiHeadLatentAttentionWrapper(PluggableLayer):
         assert swa_metadata is not None
 
         swa_kv_cache = self.swa_cache_layer.kv_cache
+
+        if self.is_rocm and envs.VLLM_ROCM_MLA_SPARSE_FP16:
+            # ROCm/gfx906: the fused CUDA op (UE8M0 FP8 quant insert) is not
+            # built for ROCm. Pure-PyTorch fallback with plain bf16 cache.
+            self._rocm_qnorm_rope_kv_insert(q, kv, swa_kv_cache, swa_metadata,
+                                            positions)
+            return
+
         swa_kv_cache_2d = swa_kv_cache.view(swa_kv_cache.shape[0], -1)
 
         # Horizontally fused:
@@ -451,6 +570,69 @@ class DeepseekV4MultiHeadLatentAttentionWrapper(PluggableLayer):
             self.eps,
             swa_metadata.block_size,
         )
+
+    def _rocm_qnorm_rope_kv_insert(
+        self,
+        q: torch.Tensor,  # [N, H, head_dim] bf16, in place
+        kv: torch.Tensor,  # [N, head_dim] bf16
+        swa_kv_cache: torch.Tensor,  # [num_blocks, block_size, head_dim] bf16
+        swa_metadata: "DeepseekSparseSWAMetadata",
+        positions: torch.Tensor,
+    ) -> None:
+        """Pure-PyTorch ROCm equivalent of
+        fused_deepseek_v4_qnorm_rope_kv_rope_quant_insert.
+
+        Q side:  per-head RMSNorm (no weight, fp32) + GPT-J RoPE, in place.
+        KV side: GPT-J RoPE + plain bf16 paged cache insert (no FP8 quant).
+        Matches the cache layout read by _gather_k_cache_fp16 and the
+        reference decode path.
+        """
+        nope_dim = self.nope_head_dim
+        rope_dim = self.rope_head_dim
+        half = rope_dim // 2
+
+        pos = positions.to(torch.int64)
+        cs = self.rotary_emb.cos_sin_cache[pos].float()  # [N, rope_dim]
+        cos = cs[:, :half]
+        sin = cs[:, half:]
+
+        def gptj_rope(x: torch.Tensor, cos: torch.Tensor,
+                      sin: torch.Tensor) -> torch.Tensor:
+            # x: [..., rope_dim] fp32, GPT-J interleaved pairs.
+            x1 = x[..., 0::2]
+            x2 = x[..., 1::2]
+            y1 = x1 * cos - x2 * sin
+            y2 = x1 * sin + x2 * cos
+            return torch.stack([y1, y2], dim=-1).flatten(-2)
+
+        # Q side: per-head RMSNorm over the full head dim + RoPE, in place.
+        qf = q.float()
+        qf = qf * torch.rsqrt(qf.pow(2).mean(dim=-1, keepdim=True) + self.eps)
+        qf = torch.cat(
+            [
+                qf[..., :nope_dim],
+                gptj_rope(qf[..., nope_dim:], cos.unsqueeze(1),
+                          sin.unsqueeze(1)),
+            ],
+            dim=-1,
+        )
+        q.copy_(qf.to(q.dtype))
+
+        # KV side: RoPE, then insert into the bf16 paged cache. slot_mapping
+        # may be shorter than N (DP padding); skip negative slots.
+        kf = torch.cat(
+            [kv[:, :nope_dim].float(),
+             gptj_rope(kv[:, nope_dim:].float(), cos, sin)],
+            dim=-1,
+        ).to(swa_kv_cache.dtype)
+
+        slot_mapping = swa_metadata.slot_mapping
+        block_size = swa_metadata.block_size
+        cache_3d = swa_kv_cache.view(swa_kv_cache.shape[0], -1, kv.shape[-1])
+        valid = slot_mapping >= 0
+        if valid.any():
+            slots = slot_mapping[valid]
+            cache_3d[slots // block_size, slots % block_size] = kf[valid]
 
 
 def deepseek_v4_attention(
@@ -593,25 +775,34 @@ class DeepseekV4MLAAttention(nn.Module, AttentionLayerBase):
         self.max_model_len = vllm_config.model_config.max_model_len
         # DeepseekV4 only supports fp8 kv-cache format for now
         kv_cache_dtype = cache_config.cache_dtype if cache_config is not None else "fp8"
+        self.is_rocm = current_platform.is_rocm()
 
-        assert kv_cache_dtype.startswith("fp8"), (
-            f"DeepseekV4 only supports fp8 kv-cache format for now, "
-            f"got {kv_cache_dtype}"
-        )
-        assert issubclass(self.get_attn_backend(), FlashMLASparseBackend), (
-            "Only FlashMLA Sparse Attention backend is supported for DeepseekV4 for now"
-        )
-        # FlashMLA Sparse Attention fp8 backend uses "fp8_ds_mla" kv-cache format
-        # Automatically convert fp8 kv-cache format to "fp8_ds_mla"
-        if (
-            issubclass(self.get_attn_backend(), FlashMLASparseBackend)
-            and kv_cache_dtype.startswith("fp8")
-            and kv_cache_dtype != "fp8_ds_mla"
-        ):
-            assert cache_config is not None
-            cache_config.cache_dtype = "fp8_ds_mla"
-            kv_cache_dtype = "fp8_ds_mla"
-            logger.info_once("Using DeepSeek's fp8_ds_mla KV cache format.")
+        if self.is_rocm and envs.VLLM_ROCM_MLA_SPARSE_FP16:
+            # ROCm/gfx906 path: use fp16 kv-cache (matches fp16 activations;
+            # moe_wna16_gemm does not support bf16 on this platform)
+            if kv_cache_dtype == "auto" or kv_cache_dtype.startswith("fp8"):
+                kv_cache_dtype = "float16"
+                if cache_config is not None:
+                    cache_config.cache_dtype = kv_cache_dtype
+        else:
+            assert kv_cache_dtype.startswith("fp8"), (
+                f"DeepseekV4 only supports fp8 kv-cache format for now, "
+                f"got {kv_cache_dtype}"
+            )
+            assert issubclass(self.get_attn_backend(), FlashMLASparseBackend), (
+                "Only FlashMLA Sparse Attention backend is supported for DeepseekV4 for now"
+            )
+            # FlashMLA Sparse Attention fp8 backend uses "fp8_ds_mla" kv-cache format
+            # Automatically convert fp8 kv-cache format to "fp8_ds_mla"
+            if (
+                issubclass(self.get_attn_backend(), FlashMLASparseBackend)
+                and kv_cache_dtype.startswith("fp8")
+                and kv_cache_dtype != "fp8_ds_mla"
+            ):
+                assert cache_config is not None
+                cache_config.cache_dtype = "fp8_ds_mla"
+                kv_cache_dtype = "fp8_ds_mla"
+                logger.info_once("Using DeepSeek's fp8_ds_mla KV cache format.")
 
         self.kv_cache_dtype = kv_cache_dtype
 
@@ -625,6 +816,11 @@ class DeepseekV4MLAAttention(nn.Module, AttentionLayerBase):
         self.kv_cache = torch.tensor([])
 
     def get_attn_backend(self) -> type[AttentionBackend]:
+        if self.is_rocm and envs.VLLM_ROCM_MLA_SPARSE_FP16:
+            from vllm.v1.attention.backends.mla.rocm_aiter_mla_sparse import (
+                ROCMAiterMLASparseBackend,
+            )
+            return ROCMAiterMLASparseBackend
         return DeepseekV4FlashMLASparseBackend
 
     def get_kv_cache_spec(self, vllm_config: VllmConfig) -> KVCacheSpec | None:
@@ -632,11 +828,12 @@ class DeepseekV4MLAAttention(nn.Module, AttentionLayerBase):
             self.compress_ratio <= 1
         ):  # SWA part. Allocated separately as DeepseekV4SWACache.
             return None
+        kv_dtype = torch.float16 if (self.is_rocm and envs.VLLM_ROCM_MLA_SPARSE_FP16) else torch.uint8
         return MLAAttentionSpec(
             block_size=vllm_config.cache_config.block_size,
             num_kv_heads=1,
             head_size=self.head_dim,
-            dtype=torch.uint8,
+            dtype=kv_dtype,
             compress_ratio=self.compress_ratio,
             cache_dtype_str=self.kv_cache_dtype,
             alignment=576,  # NOTE: FlashMLA requires 576B alignment
@@ -738,6 +935,44 @@ class DeepseekV4MLAAttention(nn.Module, AttentionLayerBase):
 
         swa_indices = swa_metadata.decode_swa_indices
         swa_lens = swa_metadata.decode_swa_lens
+
+        if self.is_rocm and envs.VLLM_ROCM_MLA_SPARSE_FP16:
+            # ROCm/gfx906 path: use reference PyTorch implementation
+            swa_cache = self.swa_cache_layer.kv_cache
+            if kv_cache is not None:
+                kv_flat = kv_cache.reshape(-1, 1, kv_cache.shape[-1])
+                num_compressed = kv_flat.shape[0]
+                topk_squeezed = topk_indices.squeeze(1) if topk_indices is not None else torch.empty(
+                    (num_decode_tokens, 0), dtype=torch.int32, device=q.device
+                )
+            else:
+                kv_flat = None
+                num_compressed = 0
+                topk_squeezed = torch.empty(
+                    (num_decode_tokens, 0), dtype=torch.int32, device=q.device
+                )
+
+            swa_flat = swa_cache.reshape(-1, 1, swa_cache.shape[-1])
+            swa_squeezed = swa_indices[:num_decode_tokens].squeeze(1)  # [num_tokens, window_size]
+
+            if num_compressed > 0:
+                swa_adj = swa_squeezed.clone()
+                valid_swa = swa_adj >= 0
+                swa_adj[valid_swa] += num_compressed
+                combined_kv = torch.cat([kv_flat, swa_flat], dim=0)
+                combined_indices = torch.cat([topk_squeezed, swa_adj], dim=-1)
+            else:
+                combined_kv = swa_flat
+                combined_indices = swa_squeezed
+
+            output[:] = reference_mla_sparse_prefill(
+                q=q,
+                kv=combined_kv,
+                indices=combined_indices.unsqueeze(1),
+                sm_scale=self.scale,
+                d_v=self.head_dim,
+            )
+            return
 
         # We treat queries in the same seq as different queries
         # and later we only attend by generated indices.
@@ -849,7 +1084,7 @@ class DeepseekV4MLAAttention(nn.Module, AttentionLayerBase):
 
         workspace_manager = current_workspace_manager()
         kv = workspace_manager.get_simultaneous(
-            ((PREFILL_CHUNK_SIZE, M, q.shape[-1]), torch.bfloat16),
+            ((PREFILL_CHUNK_SIZE, M, q.shape[-1]), torch.float16),
         )[0]
         for chunk_idx in range(num_chunks):
             chunk_start = chunk_idx * PREFILL_CHUNK_SIZE
@@ -859,27 +1094,49 @@ class DeepseekV4MLAAttention(nn.Module, AttentionLayerBase):
                 # Gather compressed KV
                 assert attn_metadata is not None
                 block_table = attn_metadata.block_table[num_decodes:]
-                dequantize_and_gather_k_cache(
-                    kv[:chunk_size],
-                    compressed_k_cache,
-                    seq_lens=seq_lens[chunk_start:chunk_end] // self.compress_ratio,
-                    gather_lens=None,
-                    block_table=block_table[chunk_start:chunk_end],
-                    block_size=attn_metadata.block_size // self.compress_ratio,
-                    offset=0,
-                )
+                if self.is_rocm and envs.VLLM_ROCM_MLA_SPARSE_FP16:
+                    _gather_k_cache_fp16(
+                        kv[:chunk_size],
+                        compressed_k_cache,
+                        seq_lens=seq_lens[chunk_start:chunk_end] // self.compress_ratio,
+                        gather_lens=None,
+                        block_table=block_table[chunk_start:chunk_end],
+                        block_size=attn_metadata.block_size // self.compress_ratio,
+                        offset=0,
+                    )
+                else:
+                    dequantize_and_gather_k_cache(
+                        kv[:chunk_size],
+                        compressed_k_cache,
+                        seq_lens=seq_lens[chunk_start:chunk_end] // self.compress_ratio,
+                        gather_lens=None,
+                        block_table=block_table[chunk_start:chunk_end],
+                        block_size=attn_metadata.block_size // self.compress_ratio,
+                        offset=0,
+                    )
 
             # Gather SWA KV
             swa_block_table = swa_metadata.block_table[num_decodes:]
-            dequantize_and_gather_k_cache(
-                kv[:chunk_size],
-                swa_k_cache,
-                seq_lens=seq_lens[chunk_start:chunk_end],
-                gather_lens=gather_lens[chunk_start:chunk_end],
-                block_table=swa_block_table[chunk_start:chunk_end],
-                block_size=swa_metadata.block_size,
-                offset=N,
-            )
+            if self.is_rocm and envs.VLLM_ROCM_MLA_SPARSE_FP16:
+                _gather_k_cache_fp16(
+                    kv[:chunk_size],
+                    swa_k_cache,
+                    seq_lens=seq_lens[chunk_start:chunk_end],
+                    gather_lens=gather_lens[chunk_start:chunk_end],
+                    block_table=swa_block_table[chunk_start:chunk_end],
+                    block_size=swa_metadata.block_size,
+                    offset=N,
+                )
+            else:
+                dequantize_and_gather_k_cache(
+                    kv[:chunk_size],
+                    swa_k_cache,
+                    seq_lens=seq_lens[chunk_start:chunk_end],
+                    gather_lens=gather_lens[chunk_start:chunk_end],
+                    block_table=swa_block_table[chunk_start:chunk_end],
+                    block_size=swa_metadata.block_size,
+                    offset=N,
+                )
 
             # Combine the topk indices and SWA indices for gathered KV cache
             query_start = (
@@ -903,15 +1160,24 @@ class DeepseekV4MLAAttention(nn.Module, AttentionLayerBase):
                 N,
             )
 
-            output_chunk, _, _ = flash_mla_sparse_fwd(
-                q=q[query_start:query_end],
-                kv=kv.view(-1, 1, q.shape[-1]),
-                indices=combined_indices.unsqueeze(1),
-                sm_scale=self.scale,
-                attn_sink=self.attn_sink,
-                topk_length=combined_lens,
-                out=output[query_start:query_end],
-            )
+            if self.is_rocm and envs.VLLM_ROCM_MLA_SPARSE_FP16:
+                output[query_start:query_end] = reference_mla_sparse_prefill(
+                    q=q[query_start:query_end],
+                    kv=kv.reshape(-1, 1, q.shape[-1]),
+                    indices=combined_indices.unsqueeze(1),
+                    sm_scale=self.scale,
+                    d_v=self.head_dim,
+                )
+            else:
+                output_chunk, _, _ = flash_mla_sparse_fwd(
+                    q=q[query_start:query_end],
+                    kv=kv.view(-1, 1, q.shape[-1]),
+                    indices=combined_indices.unsqueeze(1),
+                    sm_scale=self.scale,
+                    attn_sink=self.attn_sink,
+                    topk_length=combined_lens,
+                    out=output[query_start:query_end],
+                )
 
 
 class DeepseekV4IndexerCache(torch.nn.Module, AttentionLayerBase):
@@ -997,7 +1263,7 @@ class DeepseekV4Indexer(nn.Module):
             hidden_size,
             self.n_head,
             bias=False,
-            quant_config=None,
+            quant_config=quant_config,
             prefix=f"{prefix}.weights_proj",
         )
         self.k_norm = LayerNorm(self.head_dim, eps=1e-6)
@@ -1017,14 +1283,21 @@ class DeepseekV4Indexer(nn.Module):
         )
 
         assert cache_config is not None, "Deepseek V4 indexer requires cache_config"
-        # NOTE(yifan): FP8 indxer cache use the same layout as V3.2:
-        # head_dim bytes = 128 fp8 + 4 fp32 scale = 132.
-        # For FP4 indexer cache, we still allocate the same amount of memory as FP8,
-        # but only use the first half of the memory.
-        k_cache_head_dim = self.head_dim + self.head_dim // self.quant_block_size * 4
+        is_rocm = current_platform.is_rocm()
+        if is_rocm and envs.VLLM_ROCM_MLA_SPARSE_FP16:
+            # ROCm/gfx906 path: use plain fp16 cache without fp8 scale padding
+            k_cache_head_dim = self.head_dim
+            k_cache_dtype = torch.float16
+        else:
+            # NOTE(yifan): FP8 indxer cache use the same layout as V3.2:
+            # head_dim bytes = 128 fp8 + 4 fp32 scale = 132.
+            # For FP4 indexer cache, we still allocate the same amount of memory as FP8,
+            # but only use the first half of the memory.
+            k_cache_head_dim = self.head_dim + self.head_dim // self.quant_block_size * 4
+            k_cache_dtype = torch.uint8
         self.k_cache = DeepseekV4IndexerCache(
             head_dim=k_cache_head_dim,
-            dtype=torch.uint8,
+            dtype=k_cache_dtype,
             prefix=f"{prefix}.k_cache",
             cache_config=cache_config,
             compress_ratio=self.compress_ratio,
@@ -1038,6 +1311,7 @@ class DeepseekV4Indexer(nn.Module):
             prefix=f"{prefix}.compressor",
             k_cache_prefix=self.k_cache.prefix,
             use_fp4_cache=self.use_fp4_kv,
+            quant_config=quant_config,
         )
 
         self.indexer_op = SparseAttnIndexer(
@@ -1049,7 +1323,7 @@ class DeepseekV4Indexer(nn.Module):
             self.max_model_len,
             self.max_total_seq_len,
             self.topk_indices_buffer,
-            skip_k_cache_insert=True,
+            skip_k_cache_insert=not current_platform.is_rocm(),
             use_fp4_cache=self.use_fp4_kv,
         )
 
@@ -1073,4 +1347,5 @@ class DeepseekV4Indexer(nn.Module):
             self.n_head**-0.5,
             use_fp4=self.use_fp4_kv,
         )
-        return self.indexer_op(hidden_states, q_quant, k, weights)
+        out = self.indexer_op(hidden_states, q_quant, k, weights)
+        return out

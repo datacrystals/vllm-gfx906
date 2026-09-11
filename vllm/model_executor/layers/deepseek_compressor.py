@@ -4,8 +4,14 @@
 from dataclasses import dataclass
 from typing import Any, ClassVar, cast
 
+import os
+
 import torch
 from torch import nn
+
+_FLUSH_DBG = os.environ.get("DSV4_FLUSH_DBG", "0") == "1"
+
+
 
 from vllm.config import VllmConfig, get_current_vllm_config
 from vllm.forward_context import get_forward_context
@@ -13,6 +19,7 @@ from vllm.model_executor.layers.attention_layer_base import AttentionLayerBase
 from vllm.model_executor.layers.layernorm import RMSNorm
 from vllm.model_executor.layers.linear import (
     MergedColumnParallelLinear,
+    ReplicatedLinear,
 )
 from vllm.model_executor.layers.utils import cublas_gemm_bf16_bf16_fp32
 from vllm.platforms import current_platform
@@ -25,6 +32,7 @@ from vllm.v1.attention.backend import (
     MultipleOf,
 )
 from vllm.v1.attention.ops.deepseek_v4_ops.fused_compress_quant_cache import (
+    _fused_kv_compress_norm_rope_insert_fp16,
     _fused_kv_compress_norm_rope_insert_indexer_attn,
     _fused_kv_compress_norm_rope_insert_indexer_mxfp4_attn,
     _fused_kv_compress_norm_rope_insert_sparse_attn,
@@ -186,6 +194,7 @@ class DeepseekCompressor(nn.Module):
         prefix: str = "",
         k_cache_prefix="",
         use_fp4_cache: bool = False,
+        quant_config=None,
     ):
         super().__init__()
         self.compress_ratio = compress_ratio
@@ -217,14 +226,20 @@ class DeepseekCompressor(nn.Module):
             requires_grad=False,
         )
 
-        self.fused_wkv_wgate = MergedColumnParallelLinear(
+        # Intel W4A16 checkpoint stores wkv and wgate as separate tensors.
+        self.wkv = ReplicatedLinear(
             self.hidden_size,
-            [self.coff * self.head_dim, self.coff * self.head_dim],
+            self.coff * self.head_dim,
             bias=False,
-            return_bias=False,
-            quant_config=None,
-            disable_tp=True,
-            prefix=f"{prefix}.fused_wkv_wgate",
+            quant_config=quant_config,
+            prefix=f"{prefix}.wkv",
+        )
+        self.wgate = ReplicatedLinear(
+            self.hidden_size,
+            self.coff * self.head_dim,
+            bias=False,
+            quant_config=quant_config,
+            prefix=f"{prefix}.wgate",
         )
         self.norm = RMSNorm(self.head_dim, self.rms_norm_eps)
 
@@ -280,12 +295,10 @@ class DeepseekCompressor(nn.Module):
         num_tokens, _ = x.shape
         # bf16 weights/activations but fp32 output for numerical stability of
         # the downstream compressor math.
-        kv_score = cublas_gemm_bf16_bf16_fp32(x, self.fused_wkv_wgate.weight)
-        # Each of shape [num_tokens, coff * self.head_dim]
-        # input bf16, output are fp32
-        kv, score = kv_score.split(
-            [self.coff * self.head_dim, self.coff * self.head_dim], dim=-1
-        )
+        # Intel W4A16 checkpoint uses separate wkv/wgate; use layer forward
+        # so GPTQ quant method is applied correctly.
+        kv = self.wkv(x)[0]
+        score = self.wgate(x)[0]
 
         # Get the metadata and handle dummy profiling run.
         attn_metadata = get_forward_context().attn_metadata
@@ -329,7 +342,6 @@ class DeepseekCompressor(nn.Module):
             TRITON_BLOCK_SIZE=triton.next_power_of_2(kv.shape[-1]),
             STATE_WIDTH=state_width,
             COMPRESS_RATIO=self.compress_ratio,
-            launch_pdl=False,
         )
 
         # Fused: compress → RMSNorm → RoPE → FP8 quant → KV cache write.
@@ -342,6 +354,71 @@ class DeepseekCompressor(nn.Module):
         cos_sin_cache = rotary_emb.cos_sin_cache
         k_cache_metadata = cast(Any, attn_metadata[self.k_cache_prefix])
         kv_cache = self._static_forward_context[self.k_cache_prefix].kv_cache
+
+        if kv_cache.dtype == torch.float16:
+            # ROCm fp16 path: plain fp16 cache, no FP8 quant / scale region.
+            # Token stride == HEAD_SIZE, KV_BLOCK_STRIDE in fp16 elements.
+            if _FLUSH_DBG and self.compress_ratio == 128:
+                torch.cuda.synchronize()
+                nb = state_cache.shape[0]
+                posi = positions[:num_actual].long()
+                sm = slot_mapping[:num_actual].long()
+                act = ((posi + 1) % self.compress_ratio == 0) & (sm >= 0)
+                rows = torch.nonzero(act).flatten()
+                kvsm = k_cache_metadata.slot_mapping
+                for r in rows.tolist():
+                    p = int(posi[r])
+                    req = int(token_to_req_indices[r])
+                    start = max(0, p - (1 + int(self.overlap)) * self.compress_ratio + 1)
+                    toks = torch.arange(start, p + 1, device=positions.device)
+                    bi = toks // block_size
+                    bn = block_table[req, bi]
+                    kvsl = int(kvsm[r]) if kvsm is not None else -999
+                    kvmax = kv_cache.shape[0] * kv_cache.shape[1]
+                    bad = int(((bn < 0) | (bn >= nb)).sum())
+                    print(
+                        f"[FLUSHDBG] {self.prefix} row={r} pos={p} req={req} "
+                        f"bnmin={int(bn.min())} bnmax={int(bn.max())} nb={nb} "
+                        f"kvslot={kvsl} kvmax={kvmax} badstate={bad} "
+                        f"btshape={tuple(block_table.shape)}",
+                        flush=True,
+                    )
+                # Safety clamp: any out-of-range state block numbers are clamped
+                # instead of faulting the device.
+                block_table = block_table.clamp(0, nb - 1)
+            _fused_kv_compress_norm_rope_insert_fp16[(num_actual,)](
+                # state cache
+                state_cache,
+                state_cache.stride(0),
+                state_cache.stride(1),
+                # metadata
+                token_to_req_indices,
+                positions,
+                slot_mapping,
+                block_table,
+                block_table.stride(0),
+                block_size,
+                # RMSNorm
+                self.norm.weight,
+                self.rms_norm_eps,
+                # RoPE
+                cos_sin_cache,
+                cos_sin_cache.stride(0),
+                # KV cache
+                kv_cache,
+                k_cache_metadata.slot_mapping,
+                kv_cache.shape[1],  # paged KV cache block size (tokens per block)
+                # constexprs
+                HEAD_SIZE=self.head_dim,
+                TRITON_BLOCK_SIZE=triton.next_power_of_2(self.head_dim),
+                STATE_WIDTH=state_width,
+                COMPRESS_RATIO=self.compress_ratio,
+                OVERLAP=self.overlap,
+                ROPE_HEAD_DIM=self.rope_head_dim,
+                KV_BLOCK_STRIDE=kv_cache.stride(0),
+                num_warps=self._num_warps,
+            )
+            return
 
         self._fused_kernel[(num_actual,)](
             # state cache
@@ -378,7 +455,6 @@ class DeepseekCompressor(nn.Module):
             SCALE_DIM=self._scale_dim,
             KV_BLOCK_STRIDE=kv_cache.stride(0),
             num_warps=self._num_warps,
-            launch_pdl=False,
         )
 
 

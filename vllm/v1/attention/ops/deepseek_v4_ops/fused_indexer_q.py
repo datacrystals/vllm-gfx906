@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 import torch
 
+import vllm.envs as envs
 from vllm.triton_utils import tl, triton
 
 # MXFP4: 32 elements per block, packed 2 nibbles per byte, ue8m0 block scale.
@@ -338,6 +339,32 @@ def fused_indexer_q_rope_quant(
     num_tokens = positions.shape[0]
     num_index_q_heads = index_q.shape[1]
     index_q_head_dim = index_q.shape[2]
+
+    if not use_fp4 and envs.VLLM_ROCM_MLA_SPARSE_FP16:
+        # ROCm fp16 path: FP8 is unusable on gfx906 and the K side is a
+        # plain fp16 cache, so skip quantization entirely. Apply the same
+        # GPT-J interleaved RoPE to the LAST rot dims of each head in fp32
+        # and return fp16 Q. There is no per-token q_scale, so the weights
+        # carry only softmax_scale * head_scale (contrast with the FP8
+        # weight-fold contract below).
+        half_rot = index_q_cos_sin_cache.shape[-1] // 2
+        nope_dim = index_q_head_dim - 2 * half_rot
+        cos = index_q_cos_sin_cache[positions, :half_rot].float()  # [T, half]
+        sin = index_q_cos_sin_cache[positions, half_rot:].float()  # [T, half]
+        q_f = index_q.float()
+        q_out = q_f.clone()
+        rot = q_f[..., nope_dim:]
+        x_even = rot[..., 0::2]
+        x_odd = rot[..., 1::2]
+        r_even = x_even * cos.unsqueeze(1) - x_odd * sin.unsqueeze(1)
+        r_odd = x_odd * cos.unsqueeze(1) + x_even * sin.unsqueeze(1)
+        q_out[..., nope_dim:] = torch.stack((r_even, r_odd), dim=-1).flatten(-2)
+        index_weights_out = (
+            index_weights.float()
+            * index_weights_softmax_scale
+            * index_weights_head_scale
+        )
+        return q_out.to(torch.float16), index_weights_out
 
     index_weights_out = torch.empty_like(index_weights, dtype=torch.float32)
 

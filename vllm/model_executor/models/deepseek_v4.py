@@ -1004,7 +1004,7 @@ class DeepseekV4Attention(nn.Module):
             prefix=f"{prefix}.wo_b",
         )
         self.softmax_scale = self.head_dim**-0.5
-        self.scale_fmt = config.quantization_config["scale_fmt"]
+        self.scale_fmt = config.quantization_config.get("scale_fmt", "ue8m0")
 
         self.rope_parameters = config.rope_scaling
 
@@ -1102,6 +1102,10 @@ class DeepseekV4DecoderLayer(nn.Module):
         self.hidden_size = config.hidden_size
 
         self.rms_norm_eps = config.rms_norm_eps
+        # GEMM/MoE kernels on gfx906 require fp16 activations; the hc residual
+        # stream itself runs in fp32 (bf16-native model overflows fp16: token 0
+        # drives the hyper-connection streams past 65504 around layer 39).
+        self.model_dtype = vllm_config.model_config.dtype
         self.attn = DeepseekV4Attention(
             vllm_config,
             prefix=f"{prefix}.attn",
@@ -1208,6 +1212,7 @@ class DeepseekV4DecoderLayer(nn.Module):
             x, self.hc_attn_fn, self.hc_attn_scale, self.hc_attn_base
         )
         x = self.attn_norm(x)
+        x = x.to(self.model_dtype)
         x = self.attn(positions, x, None)
         x = self.hc_post(x, residual, post, comb)
 
@@ -1216,6 +1221,7 @@ class DeepseekV4DecoderLayer(nn.Module):
             x, self.hc_ffn_fn, self.hc_ffn_scale, self.hc_ffn_base
         )
         x = self.ffn_norm(x)
+        x = x.to(self.model_dtype)
         x = self.ffn(x, input_ids)
         x = self.hc_post(x, residual, post, comb)
         return x
@@ -1231,6 +1237,7 @@ class DeepseekV4Model(nn.Module):
         self.config = config
 
         self.vocab_size = config.vocab_size
+        self.model_dtype = vllm_config.model_config.dtype
         self.hc_eps = config.hc_eps
         self.hc_mult = config.hc_mult
         self.hc_dim = self.hc_mult * config.hidden_size
@@ -1311,7 +1318,7 @@ class DeepseekV4Model(nn.Module):
         inputs_embeds: torch.Tensor | None = None,
     ) -> torch.Tensor | IntermediateTensors:
         hidden_states = self.embed_input_ids(input_ids)
-        hidden_states = hidden_states.unsqueeze(-2).repeat(1, self.hc_mult, 1)
+        hidden_states = hidden_states.unsqueeze(-2).repeat(1, self.hc_mult, 1).float()
 
         for layer in islice(self.layers, self.start_layer, self.end_layer):
             hidden_states = layer(
@@ -1322,7 +1329,10 @@ class DeepseekV4Model(nn.Module):
 
         # Stash pre-hc_head residual for the MTP draft (captured copy_).
         num_tokens = hidden_states.shape[0]
-        self._mtp_hidden_buffer[:num_tokens].copy_(hidden_states.flatten(1))
+        mtp_lim = torch.finfo(self._mtp_hidden_buffer.dtype).max
+        self._mtp_hidden_buffer[:num_tokens].copy_(
+            hidden_states.flatten(1).clamp(-mtp_lim, mtp_lim)
+        )
 
         hidden_states = hc_head(
             hidden_states,
@@ -1333,7 +1343,7 @@ class DeepseekV4Model(nn.Module):
             self.hc_eps,
         )
         hidden_states = self.norm(hidden_states)
-        return hidden_states
+        return hidden_states.to(self.model_dtype)
 
     def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]) -> set[str]:
         stacked_params_mapping = [
@@ -1342,8 +1352,8 @@ class DeepseekV4Model(nn.Module):
             ("gate_up_proj", "w3", 1),
             ("attn.fused_wqa_wkv", "attn.wq_a", 0),
             ("attn.fused_wqa_wkv", "attn.wkv", 1),
-            ("compressor.fused_wkv_wgate", "compressor.wkv", 0),
-            ("compressor.fused_wkv_wgate", "compressor.wgate", 1),
+            # Intel W4A16 checkpoint stores wkv/wgate separately;
+            # no stacked mapping needed for compressor.
         ]
         params_dict = dict(self.named_parameters())
         loaded_params: set[str] = set()

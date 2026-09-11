@@ -1201,9 +1201,9 @@ def rocm_aiter_sparse_attn_indexer(
     # during speculative decoding, k may be padded to the CUDA graph batch
     # size while slot_mapping only covers actual tokens.
     num_tokens = slot_mapping.shape[0]
-    k = k[:num_tokens]
 
     if not envs.VLLM_ROCM_MLA_SPARSE_FP16:
+        k = k[:num_tokens]
         ops.indexer_k_quant_and_cache(
             k,
             kv_cache,
@@ -1211,7 +1211,10 @@ def rocm_aiter_sparse_attn_indexer(
             quant_block_size,
             scale_fmt,
         )
-    else:
+    elif k is not None:
+        # FP16 path: k is None when the compressor already inserted into the
+        # cache in the correct fp16 format (fused compress+RoPE+store kernel).
+        k = k[:num_tokens]
         ops.indexer_k_cache_fp16(
             k,
             kv_cache,
@@ -1261,7 +1264,7 @@ def rocm_aiter_sparse_attn_indexer(
                 chunk.cu_seqlen_ke,
             )
             num_rows = logits.shape[0]
-            assert topk_tokens == 2048, "top_k_per_row assumes size 2048"
+            assert topk_tokens in (512, 1024, 2048), "top_k_per_row supports sizes 512/1024/2048"
             topk_indices = topk_indices_buffer[
                 chunk.token_start : chunk.token_end, :topk_tokens
             ]
@@ -1312,7 +1315,7 @@ def rocm_aiter_sparse_attn_indexer(
         )
 
         num_rows = logits.shape[0]
-        assert topk_tokens == 2048, "top_k_per_row assumes size 2048"
+        assert topk_tokens in (512, 1024, 2048), "top_k_per_row supports sizes 512/1024/2048"
         topk_indices = topk_indices_buffer[:num_padded_tokens, :topk_tokens]
         torch.ops._C.top_k_per_row_decode(
             logits,

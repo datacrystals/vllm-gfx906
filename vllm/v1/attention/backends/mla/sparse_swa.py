@@ -5,8 +5,10 @@ from typing import ClassVar, cast
 
 import torch
 
+import vllm.envs as envs
 from vllm.config import CacheConfig, VllmConfig, get_current_vllm_config
 from vllm.model_executor.layers.attention_layer_base import AttentionLayerBase
+from vllm.platforms import current_platform
 from vllm.triton_utils import tl, triton
 from vllm.v1.attention.backend import (
     AttentionBackend,
@@ -72,7 +74,8 @@ class DeepseekV4SWACache(torch.nn.Module, AttentionLayerBase):
         # determines the SWA block size of 64 tokens per block.
         # TODO(yifan): make SWA block size automatically determined and configurable.
         self.block_size = 64
-        assert self.dtype == torch.uint8
+        if not (current_platform.is_rocm() and envs.VLLM_ROCM_MLA_SPARSE_FP16):
+            assert self.dtype == torch.uint8
 
     def get_kv_cache_spec(self, vllm_config: VllmConfig) -> KVCacheSpec:
         return SlidingWindowMLASpec(
@@ -367,7 +370,11 @@ class DeepseekSparseSWAMetadataBuilder(AttentionMetadataBuilder):
             # returns a fresh empty FlashMLASchedMeta; using it keeps this
             # call site aligned with the rest of the vLLM FlashMLA backends
             # that already go through the same stub.
-            out[layer_type] = get_mla_metadata()[0]
+            try:
+                out[layer_type] = get_mla_metadata()[0]
+            except RuntimeError:
+                # FlashMLA not available (e.g. ROCm) — use a plain Python stub.
+                out[layer_type] = FlashMLASchedMeta()
         return out
 
     def _build_deepseek_v4_metadata(

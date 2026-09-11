@@ -224,7 +224,7 @@ def fused_inv_rope_fp8_quant(
         HALF_ROPE=rope_dim // 2,
         TMA_ALIGNED_SCALES=tma_aligned_scales,
         num_stages=1,
-        launch_pdl=False,
+
     )
 
     grid = (tma_aligned_T, n_groups * heads_per_group)
