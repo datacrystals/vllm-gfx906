@@ -365,6 +365,14 @@ def mhc_pre(
     n_splits: int = 1,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     if tilelang is None:
+        if residual.is_cuda:
+            from vllm.model_executor.layers import glm53_mhc_fused as _g53mhc
+            _T = residual.view(-1, residual.shape[-2],
+                               residual.shape[-1]).shape[0]
+            if _g53mhc.mhc_fused_enabled(_T):
+                return _g53mhc.mhc_pre_fused(
+                    residual, fn, hc_scale, hc_base, rms_eps, hc_pre_eps,
+                    hc_sinkhorn_eps, hc_post_mult_value, sinkhorn_repeat)
         if _dsv4_mhc_triton_enabled() and residual.is_cuda:
             from vllm.model_executor.layers import mhc_triton
 
@@ -481,6 +489,13 @@ def mhc_post(
     comb_res_mix: torch.Tensor,
 ) -> torch.Tensor:
     if tilelang is None:
+        if residual.is_cuda:
+            from vllm.model_executor.layers import glm53_mhc_fused as _g53mhc
+            _T = residual.view(-1, residual.shape[-2],
+                               residual.shape[-1]).shape[0]
+            if _g53mhc.mhc_fused_enabled(_T):
+                return _g53mhc.mhc_post_fused(x, residual, post_layer_mix,
+                                              comb_res_mix)
         if _dsv4_mhc_triton_enabled() and residual.is_cuda:
             from vllm.model_executor.layers import mhc_triton
 

@@ -26,6 +26,33 @@ from vllm.model_executor.utils import maybe_disable_graph_partition
 from vllm.platforms import current_platform
 
 
+def _glm53_fused_grouped_topk(
+    hidden_states: torch.Tensor,
+    gating_output: torch.Tensor,
+    topk: int,
+    renormalize: bool,
+    num_expert_group: int,
+    topk_group: int,
+    scoring_func: str,
+    routed_scaling_factor: float,
+    e_score_correction_bias: torch.Tensor | None,
+):
+    """GLM53 gfx906 fused-router seam: returns None unless the
+    VLLM_GLM53_MOE_ROUTER_FUSED-gated triton kernel handles this config."""
+    if not (current_platform.is_rocm() and gating_output.is_cuda):
+        return None
+    try:
+        from vllm.model_executor.layers.fused_moe.router import (
+            glm53_moe_router_topk as _g53rt,
+        )
+    except Exception:
+        return None
+    return _g53rt.grouped_topk_maybe_fused(
+        hidden_states, gating_output, topk, renormalize, num_expert_group,
+        topk_group, scoring_func, routed_scaling_factor,
+        e_score_correction_bias)
+
+
 def fused_grouped_topk(
     hidden_states: torch.Tensor,
     gating_output: torch.Tensor,
@@ -107,6 +134,13 @@ def grouped_topk(
             scoring_func=scoring_func,
             routed_scaling_factor=routed_scaling_factor,
         )
+
+    r = _glm53_fused_grouped_topk(
+        hidden_states, gating_output, topk, renormalize, num_expert_group,
+        topk_group, scoring_func, routed_scaling_factor,
+        e_score_correction_bias)
+    if r is not None:
+        return r
 
     assert hidden_states.size(0) == gating_output.size(0), "Number of tokens mismatch"
 
