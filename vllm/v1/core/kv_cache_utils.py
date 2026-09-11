@@ -2273,6 +2273,13 @@ class BlockHashListWithBlockSize:
         target_block_size: int,
     ):
         self.block_hashes = block_hashes
+        # GLM53-PORT: surface the failing sizes (GLM-5.3 hybrid groups).
+        if target_block_size % hash_block_size != 0:
+            import vllm.logger as _vl
+            _vl.init_logger(__name__).error(
+                "GLM53-PORT: BlockHashListWithBlockSize: target=%s hash=%s "
+                "len(hashes)=%d", target_block_size, hash_block_size,
+                len(block_hashes))
         assert target_block_size % hash_block_size == 0
         self.scale_factor = target_block_size // hash_block_size
 
