@@ -150,7 +150,7 @@ class CompressedTensorsWNA16MoEMethod(CompressedTensorsMoEMethod):
                 requires_grad=False,
             )
             layer.register_parameter("w13_weight_zero_point", w13_zero_point)
-            set_weight_attrs(w13_weight_zero_point, extra_weight_attrs)
+            set_weight_attrs(w13_zero_point, extra_weight_attrs)
 
             w2_zero_point = torch.nn.Parameter(
                 torch.empty(
