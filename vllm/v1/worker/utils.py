@@ -89,6 +89,7 @@ class KVBlockZeroer:
         self.device = device
         self.pin_memory = pin_memory
         self._meta: tuple[torch.Tensor, int, int, int] | None = None
+        self._meta_multi: dict[int, tuple[torch.Tensor, int, int, int]] | None = None
         self._id_cap: int = 0
         self._ids_pinned: torch.Tensor | None = None
         self._ids_gpu: torch.Tensor | None = None
@@ -117,6 +118,9 @@ class KVBlockZeroer:
         seen_ptrs: set[int] = set()
         seg_addrs: list[int] = []
         page_size_el: int | None = None
+        # GLM53-PORT: per-page-size buckets for non-uniform hybrid groups (GLM-5.3:
+        # 256KiB MLA pages + 16KiB kpool indexer pages in the same group).
+        buckets: dict[int, list[int]] = {}
 
         for group in attn_groups_iter:
             spec = group.kv_cache_spec
@@ -149,12 +153,9 @@ class KVBlockZeroer:
                 assert cur_bytes % 4 == 0
                 kernel_block_el = cur_bytes // 4
                 cur_page_el = kernel_block_el * ratio
+                bucket = buckets.setdefault(cur_page_el, [])
                 if page_size_el is None:
                     page_size_el = cur_page_el
-                else:
-                    assert page_size_el == cur_page_el, (
-                        f"Non-uniform page sizes: {page_size_el} vs {cur_page_el}"
-                    )
 
                 block_stride_bytes = cur_bytes
                 outer_dims = [
@@ -165,13 +166,13 @@ class KVBlockZeroer:
                 outer_strides = [kv.stride(d) * el for d in outer_dims]
                 for outer in iprod(*(range(kv.shape[d]) for d in outer_dims)):
                     off_bytes = sum(i * s for i, s in zip(outer, outer_strides))
+                    bucket.append(dp + off_bytes)
                     seg_addrs.append(dp + off_bytes)
 
         if not seg_addrs or page_size_el is None:
             self._meta = None
             return
 
-        blk_size = min(largest_power_of_2_divisor(page_size_el), 1024)
         self._id_cap = 8192
         self._ids_pinned = torch.empty(
             self._id_cap,
@@ -179,18 +180,49 @@ class KVBlockZeroer:
             pin_memory=self.pin_memory,
         )
         self._ids_gpu = torch.empty(self._id_cap, dtype=torch.int64, device=self.device)
-        self._meta = (
-            torch.tensor(seg_addrs, dtype=torch.uint64, device=self.device),
-            page_size_el,
-            blk_size,
-            len(seg_addrs),
-        )
+        if len(buckets) == 1:
+            blk_size = min(largest_power_of_2_divisor(page_size_el), 1024)
+            self._meta = (
+                torch.tensor(seg_addrs, dtype=torch.uint64, device=self.device),
+                page_size_el,
+                blk_size,
+                len(seg_addrs),
+            )
+        else:
+            # GLM53-PORT: keep one kernel meta per page size; zero_block_ids
+            # launches per bucket.
+            self._meta_multi = {}
+            for p_el, addrs in buckets.items():
+                blk_size = min(largest_power_of_2_divisor(p_el), 1024)
+                self._meta_multi[p_el] = (
+                    torch.tensor(addrs, dtype=torch.uint64, device=self.device),
+                    p_el,
+                    blk_size,
+                    len(addrs),
+                )
+            self._meta = None
+            # module-level `logger` (line 37) is already initialized.
+            logger.info(
+                "GLM53-PORT: KV zeroer initialized with %d page-size buckets: %s",
+                len(buckets),
+                {k: f"{len(v)} segs" for k, v in buckets.items()},
+            )
 
     def zero_block_ids(self, block_ids: list[int]) -> None:
         """Zero the KV cache memory for the given block IDs."""
+        # GLM53-PORT: in bucket mode, zero each page-size bucket separately.
+        if self._meta_multi is not None:
+            if not block_ids:
+                return
+            for meta in self._meta_multi.values():
+                self._zero_with_meta(block_ids, meta)
+            return
         if not block_ids or self._meta is None:
             return
-        seg_addrs, page_size_el, blk_size, n_segs = self._meta
+        self._zero_with_meta(block_ids, self._meta)
+
+    def _zero_with_meta(self, block_ids: list[int], meta) -> None:
+        seg_addrs, page_size_el, blk_size, n_segs = meta
         n_blocks = len(block_ids)
         if n_blocks > self._id_cap:
             self._id_cap = n_blocks * 2
