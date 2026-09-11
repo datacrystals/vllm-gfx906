@@ -1285,11 +1285,19 @@ def _get_kv_cache_config_glm5_next(
     inner = attn_group.kv_cache_spec.kv_cache_specs
 
     bytes_per_block = sum(spec.page_size_bytes for spec in inner.values())
-    bytes_per_block += sum(
-        group.kv_cache_spec.page_size_bytes for group in mamba_groups
-    )
+    # GLM53-PORT: mamba/tail groups allocate one tensor PER LAYER (see the
+    # KVCacheTensor loop below), so their per-block cost is page_size x
+    # layer_count, not the group spec's single page_size. Under-counting
+    # overestimates num_blocks (~34x for 34 KDA layers) and OOMs when the
+    # per-layer tensors are actually allocated.
+    for group in mamba_groups:
+        bytes_per_block += group.kv_cache_spec.page_size_bytes * len(
+            group.layer_names)
     if tail_group is not None:
-        bytes_per_block += tail_group.kv_cache_spec.page_size_bytes
+        bytes_per_block += sum(
+            tail_group.kv_cache_spec.kv_cache_specs[name].page_size_bytes
+            * len(tail_group.layer_names)
+            for name in tail_group.layer_names)
 
     num_blocks = available_memory // bytes_per_block
     num_blocks = may_override_num_blocks(vllm_config, num_blocks, suppress_log)
