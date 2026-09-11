@@ -26,4 +26,4 @@ def scatter_states(
     assert src.shape[0] == indices.shape[0]
     assert indices.dtype in (torch.int32, torch.int64)
 
-    state[indices.to(torch.int64)] = src
+    state[indices.to(torch.int64)] = src.to(state.dtype)
