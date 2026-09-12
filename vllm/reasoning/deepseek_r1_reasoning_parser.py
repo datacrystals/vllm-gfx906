@@ -34,34 +34,47 @@ class DeepSeekR1ReasoningParser(BaseThinkingReasoningParser):
         current_token_ids: Sequence[int],
         delta_token_ids: Sequence[int],
     ) -> DeltaMessage | None:
-        ret = super().extract_reasoning_streaming(
-            previous_text,
-            current_text,
-            delta_text,
-            previous_token_ids,
-            current_token_ids,
-            delta_token_ids,
-        )
-        if (
-            ret is not None
-            and self.start_token_id not in previous_token_ids
-            and self.start_token_id not in delta_token_ids
-        ):
-            if self.end_token_id in delta_token_ids:
-                # end token in delta with more tokens,
-                # extract reasoning content and content
-                end_index = delta_text.find(self.end_token)
-                reasoning = delta_text[:end_index]
-                content = delta_text[end_index + len(self.end_token) :]
-                return DeltaMessage(
-                    reasoning=reasoning,
-                    content=content if content else None,
-                )
-            elif self.end_token_id in previous_token_ids:
-                # end token in previous, thinking content ends
-                return DeltaMessage(content=delta_text)
-            else:
-                # no end token in previous or delta, reasoning content continues
-                return DeltaMessage(reasoning=delta_text)
+        # GLM53-PORT: pure text-level split on the FIRST "</think>".
+        #
+        # The token-ID driven base implementation leaks/mangles text whenever
+        # the model emits "</think>" as composed text tokens (e.g. "</thi" +
+        # "nk>"), when multi-token deltas straddle the boundary, or when the
+        # boundary delta's text lookup misses (find() == -1 silently drops a
+        # character from reasoning and slices content at +len(end)). Splitting
+        # on the accumulated text is robust to every tokenization of the end
+        # marker: content can never contain a literal "</think>", and no
+        # reasoning characters are ever lost.
+        end = self.end_token
 
-        return ret
+        if end in previous_text:
+            # Reasoning ended before this delta: everything new is content.
+            return DeltaMessage(content=delta_text or None)
+
+        idx = current_text.find(end)
+        if idx >= 0:
+            # The boundary is crossed inside current_text. Any chars of the
+            # end token that already sit in previous_text (a partial suffix
+            # like "</thi") were held back below and must not be re-emitted
+            # as reasoning.
+            overlap = 0
+            for k in range(min(len(end) - 1, len(previous_text)), 0, -1):
+                if previous_text.endswith(end[:k]):
+                    overlap = k
+                    break
+            reasoning_so_far = len(previous_text) - overlap
+            new_reasoning = current_text[reasoning_so_far:idx]
+            new_content = current_text[idx + len(end) :]
+            return DeltaMessage(
+                reasoning=new_reasoning or None,
+                content=new_content or None,
+            )
+
+        # Still inside reasoning. Hold back any trailing partial of the end
+        # token so its fragments are never emitted as reasoning text.
+        emit = delta_text
+        tail = previous_text + delta_text
+        for k in range(min(len(end) - 1, len(tail)), 0, -1):
+            if tail.endswith(end[:k]):
+                emit = emit[: len(emit) - k] if k <= len(emit) else ""
+                break
+        return DeltaMessage(reasoning=emit or None)
