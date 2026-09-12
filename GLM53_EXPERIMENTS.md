@@ -1170,3 +1170,26 @@ SHIP: run_glm53.sh now --max-model-len 32768 (8k variant parked as
 run_glm53_8k.sh). attention.py default flips VLLM_GLM53_INDEXER_UNSPLIT
 default ON (=0 escapes). Service glm53.service runs it; agentic
 switcheroo via tools/llm switch. Restart boot ~6.6 min (mostly cold compile).
+
+## 2026-09-12 — P4 manifold verdict + ship decision (fused mHC, eager text path)
+- Templated probes (temp=0, effort=low) on plain-prose / Markdown-heads-bold-blockquote /
+  fenced-python / count-stream: ALL CLEAN (0/5 corruption markers; content 839-2952 chars,
+  proper `##`/`**`/``` structure). Earlier markdown-manifold corruption no longer reproduces
+  under the current mHC kernel state.
+- Cudagraph carrier remains the sole suspect of the earlier capture-corruption class
+  (fused kernel is capture-incompatible as written; verifier harness in
+  /data/llmbench/glm53/ — manifold_litmus + md_clean markers persisted).
+- SHIP DECISION: production = text-only eager fused-mHC config (measured 14.11-14.16 t/s
+  decode vs 12.0 w/ cg+fallback); cudagraph+fused worth ~+1.8 t/s more — parked until a
+  capture-safe kernel variant lands. Not pursued further this campaign.
+
+## 2026-09-12 early: concurrency sweep + PP-16k + requant integration
+
+- PP-only at ~20.8k prompt: 363 tok/s (57.2s wall); scales approx. 1/x w/ tokens.
+- Concurrency sweep (max-num-seqs 8 enabled):
+  1→6.4 | 2→12.4 | 4→30.1 | 8→38.6 tok/s aggregate. 1→2 near-linear; 8 bends
+  (gfx906 MoE tile division). Per-stream: 6.4/6.2/7.7/5.0.
+- 64k requant config: KV capacity reported 428 blocks (65,536-tok concurrency
+  1.25x single-request fit ✓); quality verified coherent on greedy + creative.
+- run_glm53.sh = ship config (32k default; seqs 8). run_glm53_64k.sh is the 64k
+  variant; currently run via systemd unit glm53.service.
