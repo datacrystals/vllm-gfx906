@@ -157,8 +157,21 @@ class Glm5NextIndexerCache(DeepseekV32IndexerCache):
         # manager block id >= num_blocks/4 is allocated (the 17.9k-ctx /
         # max-model-len 32768 memfault). Glm5NextROCmIndexerBackend advertises
         # 256 as supported so the group block table stays manager-granular.
-        # VLLM_GLM53_INDEXER_UNSPLIT=0 reverts to the upstream (split) backend.
-        _unsplit = os.environ.get("VLLM_GLM53_INDEXER_UNSPLIT", "1").lower() in (
+        #
+        # DEFAULT OFF (2026-09-12): the first 32k boot with this enabled
+        # hyper-stalled in determine_available_memory (21+ min, all workers
+        # 100% CPU, before "Available KV cache memory" and before any
+        # attention-backend init, where this override is first executed).
+        # Static analysis shows this override is inert at that stall point,
+        # and a patched 8k boot with identical flags was healthy — but with
+        # only one patched 32k sample and this box's history of identical
+        # environmental boot stalls (triton cache poisoning / KFD flakiness),
+        # causality is unresolved, so the safe default wins until a supervised
+        # A/B (with py-spy stack dumps) settles attribution. Set
+        # VLLM_GLM53_INDEXER_UNSPLIT=1 to re-enable — REQUIRED for >8k-ctx
+        # indexer correctness: with the split backend, recycled block ids
+        # >= num_blocks/4 still fault, and lower ids silently corrupt.
+        _unsplit = os.environ.get("VLLM_GLM53_INDEXER_UNSPLIT", "0").lower() in (
             "true",
             "1",
         )
@@ -167,6 +180,10 @@ class Glm5NextIndexerCache(DeepseekV32IndexerCache):
                 Glm5NextROCmIndexerBackend,
             )
 
+            logger.info_once(
+                "GLM53-PORT: kpool indexer using UNSPLIT manager-block table "
+                "(Glm5NextROCmIndexerBackend; VLLM_GLM53_INDEXER_UNSPLIT=1)."
+            )
             return Glm5NextROCmIndexerBackend
         return super().get_attn_backend()
 
