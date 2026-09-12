@@ -1131,3 +1131,42 @@ Value ~3-4 ms/step vs mHC's ~50 — SHELVED pending capture-side dump.
   kpool/long-prefill path gets a fix pass; 8k remains the verified envelope.
 - FINAL SHIP: run_glm53.sh @ 8k, GEMV=1, MHC_FUSED=1, ROUTER=0: 11.6-11.7 tok/s bs1,
   prefill ~81 tok/s@4.6k, KV 63k tokens (7.8x conc @8k), bench samples GOOD.
+
+## 2026-09-11 (night) — Consolidation day: vendored fork, systemd fleet, 4th leak
+
+- Fork unified: all runtime patches vendored as `vllm/gfx906_ext/` (commits
+  339494ac4f, 2f2f55eb85, pushed to github.com/datacrystals/vllm-gfx906 branch
+  glm53-gfx906). Anchor paths now package imports; env gates identical. Qwen3.5
+  GDN autopatch anchor added to gdn_linear_attn.py (was missing from branch).
+  venv mirror synced with .bak-unify backups.
+- Verify boot: vendored state serves 15.22 tok/s fine.
+- systemd consolidation: units installed from /data/vllm-gfx906-dsv4/systemd/
+  via tools/install_units.sh; glm53.service enabled (+llm-fleet.target +
+  default.target wants), qwen35.service + m27.service disabled; linger=yes
+  already on. tools/llm switch helper available.
+- FOURTH VRAM-leak event (~22:1x): 222 GB stuck with zero vllm procs left.
+  Trigger chain: overlapping ad-hoc duplicate boots + SIGTERM/-/KILL during
+  teardown. fleet_free fleet guard refused service start correctly. New rule:
+  NEVER run a second vllm against the fleet while one is mid-teardown —
+  SIGTERM, wait for BOTH 'process gone' AND 'VRAM drained', THEN act.
+  Box needs power reset; on boot, glm53.service should self-heal.
+- systemd unit fix (late night): ExecStart must NOT wrap in setsid — setsid forks
+  and exits 0 instantly; systemd TreatsMAIN PID exit=0 as clean exit and tears the
+  unit down (kills the setsid child via cgroup), reporting service 'failed' while
+  the model kept booting headless. Units now use plain ExecStart=run_*.sh and let
+  systemd own the cgroup (kill -TERM reaches everyone). Verified live:
+  glm53.service active + booting after reinstall.
+
+## 2026-09-12 (early) — LONG-CTX BUG SOLVED+VALIDATED; 32k is the new default
+
+Patch A (unsplit kpool group-0 block table; new Glm5NextROCmIndexerBackend
+accepting mgr-block 256) + Patch B (cp_gather gather kernel row-stride; csrc
+rebuild of _C.abi3.so done + venv-swapped) landed. Bisect ladder on the 32k
+config (glm53-32k): prompts 5.2k → 24.08k toks → ALL ALIVE (8 rungs) plus
+2×16k concurrent: all alive. Fail at "31k" rung was my own overshoot
+(~40k toks → clean HTTP 400, engine alive). ~11.6-12.1 tok/s sanity at 32k
+parity with 8k. 
+SHIP: run_glm53.sh now --max-model-len 32768 (8k variant parked as
+run_glm53_8k.sh). attention.py default flips VLLM_GLM53_INDEXER_UNSPLIT
+default ON (=0 escapes). Service glm53.service runs it; agentic
+switcheroo via tools/llm switch. Restart boot ~6.6 min (mostly cold compile).
