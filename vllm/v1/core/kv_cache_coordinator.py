@@ -19,6 +19,7 @@ from vllm.v1.core.single_type_kv_cache_manager import (
 )
 from vllm.v1.kv_cache_interface import (
     FullAttentionSpec,
+    KpoolTailSpec,
     KVCacheConfig,
     KVCacheSpec,
 )
@@ -543,6 +544,12 @@ class HybridKVCacheCoordinator(KVCacheCoordinator):
 
             for idx, (spec, group_ids, manager_cls) in enumerate(self.attention_groups):
                 cached_blocks = hit_blocks_by_group[group_ids[0]]
+                if isinstance(spec, KpoolTailSpec):
+                    # Per-request circular scratch (GLM53-PORT): never
+                    # prefix-cacheable, and its hit blocks stay empty. It
+                    # must not constrain the hybrid hit length either, so
+                    # skip it in the fixed-point loop entirely.
+                    continue
                 if isinstance(spec, FullAttentionSpec) and cached_blocks is not None:
                     # Full attention is downward-closed: we only need to look
                     # up cached blocks once; on subsequent iterations just trim
