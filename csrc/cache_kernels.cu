@@ -1364,7 +1364,7 @@ __global__ void cp_gather_indexer_k_cache_fp16_kernel(
     const int64_t head_dim,
     const int64_t block_stride,
     const int64_t cache_block_size,
-    const int num_blocks,
+    const int64_t block_table_stride,
     const int num_tokens) {
     
     constexpr int VEC_SIZE = 4;
@@ -1398,7 +1398,7 @@ __global__ void cp_gather_indexer_k_cache_fp16_kernel(
     if (head_idx >= head_dim || token_idx >= num_tokens || batch < 0) return;
 
     const int inbatch_seq_idx = token_idx - cu_seq_lens[batch];
-    const int block_idx_val = block_table[batch * num_blocks +
+    const int block_idx_val = block_table[batch * block_table_stride +
                                         inbatch_seq_idx / cache_block_size];
     
     const int64_t src_offset = block_idx_val * block_stride + 
@@ -1765,7 +1765,11 @@ void cp_gather_indexer_k_cache_fp16(
 
     int block_stride = kv_cache.stride(0);
     int cache_block_size = kv_cache.size(1);
-    int num_blocks = kv_cache.size(0);
+    // GLM53-PORT: index the caller-visible block_table by its REAL row stride.
+    // (Historically num_blocks == kv_cache.shape[0] was abused here; that is the
+    // total page count, NOT the per-request table width, so 2-request prefill
+    // chunks read the table out-of-bounds / with wrong rows.)
+    const int64_t block_table_stride = block_table.stride(0);
 
     constexpr int VEC_SIZE = 4;
     const at::cuda::OptionalCUDAGuard device_guard(device_of(kv_cache));
@@ -1781,7 +1785,7 @@ void cp_gather_indexer_k_cache_fp16(
             block_table.data_ptr<int32_t>(), \
             cu_seq_lens.data_ptr<int32_t>(), \
             batch_size, dst_k.stride(0), head_dim, \
-            block_stride, cache_block_size, num_blocks, num_tokens)
+            block_stride, cache_block_size, block_table_stride, num_tokens)
 
     // Select dispatch type
     if (dst_k.dtype() == at::ScalarType::Float) {

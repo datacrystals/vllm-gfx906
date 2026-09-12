@@ -171,7 +171,7 @@ class Glm5NextIndexerCache(DeepseekV32IndexerCache):
         # VLLM_GLM53_INDEXER_UNSPLIT=1 to re-enable — REQUIRED for >8k-ctx
         # indexer correctness: with the split backend, recycled block ids
         # >= num_blocks/4 still fault, and lower ids silently corrupt.
-        _unsplit = os.environ.get("VLLM_GLM53_INDEXER_UNSPLIT", "0").lower() in (
+        _unsplit = os.environ.get("VLLM_GLM53_INDEXER_UNSPLIT", "1").lower() in (
             "true",
             "1",
         )
