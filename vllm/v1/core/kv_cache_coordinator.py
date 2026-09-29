@@ -22,6 +22,7 @@ from vllm.v1.kv_cache_interface import (
     KpoolTailSpec,
     KVCacheConfig,
     KVCacheSpec,
+    MambaSpec,
 )
 from vllm.v1.request import Request
 from vllm.logger import init_logger
@@ -58,6 +59,18 @@ class KVCacheCoordinator(ABC):
             enable_kv_cache_events,
             metrics_collector,
         )
+        # GLM53-B2: mamba/KDA state draws block ids from its own compact pool
+        # (id space sized kv_cache_config.mamba_num_slots) so the shared pool
+        # only prices attention + tail pages per id.
+        self.mamba_block_pool: BlockPool | None = None
+        if kv_cache_config.mamba_num_slots > 0:
+            self.mamba_block_pool = BlockPool(
+                kv_cache_config.mamba_num_slots,
+                enable_caching,
+                hash_block_size,
+                enable_kv_cache_events,
+                metrics_collector,
+            )
 
         # KV cache group indices that get the EAGLE last-block drop.
         self.eagle_group_ids: set[int] = {
@@ -72,7 +85,7 @@ class KVCacheCoordinator(ABC):
                 kv_cache_spec=kv_cache_group.kv_cache_spec,
                 max_num_batched_tokens=max_num_batched_tokens,
                 max_model_len=max_model_len,
-                block_pool=self.block_pool,
+                block_pool=self.block_pool_for_spec(kv_cache_group.kv_cache_spec),
                 enable_caching=enable_caching,
                 kv_cache_group_id=i,
                 dcp_world_size=dcp_world_size,
@@ -80,6 +93,15 @@ class KVCacheCoordinator(ABC):
             )
             for i, kv_cache_group in enumerate(self.kv_cache_config.kv_cache_groups)
         )
+
+    def block_pool_for_spec(self, kv_cache_spec: KVCacheSpec) -> BlockPool:
+        """GLM53-B2: mamba groups share the compact mamba-state pool; every
+        other group draws ids from the shared attention+tail pool."""
+        if self.mamba_block_pool is not None and isinstance(
+            kv_cache_spec, MambaSpec
+        ):
+            return self.mamba_block_pool
+        return self.block_pool
 
     def get_num_blocks_to_allocate(
         self,
@@ -89,7 +111,7 @@ class KVCacheCoordinator(ABC):
         num_encoder_tokens: int,
         total_computed_tokens: int,
         num_tokens_main_model: int,
-    ) -> int:
+    ) -> tuple[int, int]:
         """
         Get the number of blocks needed to be allocated for the request.
 
@@ -107,25 +129,34 @@ class KVCacheCoordinator(ABC):
                 with spec decode, it is num_tokens - num_lookahead_tokens.
 
         Returns:
-            The number of blocks to allocate.
+            GLM53-B2: (shared_needed, mamba_needed) — the number of blocks to
+            allocate from the shared attention+tail pool and from the compact
+            mamba-state pool. mamba_needed is 0 when there is no mamba pool.
         """
-        num_blocks_to_allocate = 0
+        shared_needed = 0
+        mamba_needed = 0
         for i, manager in enumerate(self.single_type_managers):
             if isinstance(manager, CrossAttentionManager):
                 # For cross-attention, we issue a single static allocation
                 # of blocks based on the number of encoder input tokens.
-                num_blocks_to_allocate += manager.get_num_blocks_to_allocate(
+                num_blocks = manager.get_num_blocks_to_allocate(
                     request_id, num_encoder_tokens, [], 0, num_encoder_tokens
                 )
             else:
-                num_blocks_to_allocate += manager.get_num_blocks_to_allocate(
+                num_blocks = manager.get_num_blocks_to_allocate(
                     request_id,
                     num_tokens,
                     new_computed_blocks[i],
                     total_computed_tokens,
                     num_tokens_main_model,
                 )
-        return num_blocks_to_allocate
+            if self.mamba_block_pool is not None and isinstance(
+                manager.kv_cache_spec, MambaSpec
+            ):
+                mamba_needed += num_blocks
+            else:
+                shared_needed += num_blocks
+        return shared_needed, mamba_needed
 
     def allocate_new_computed_blocks(
         self,
@@ -372,7 +403,7 @@ class UnitaryKVCacheCoordinator(KVCacheCoordinator):
             block_hashes=block_hashes,
             max_length=max_cache_hit_length,
             kv_cache_group_ids=[0],
-            block_pool=self.block_pool,
+            block_pool=self.block_pool_for_spec(self.kv_cache_spec),
             kv_cache_spec=self.kv_cache_spec,
             use_eagle=0 in self.eagle_group_ids,
             alignment_tokens=self.block_size,
@@ -573,7 +604,7 @@ class HybridKVCacheCoordinator(KVCacheCoordinator):
                     block_hashes=_get_block_hashes(spec),
                     max_length=_max_length,
                     kv_cache_group_ids=group_ids,
-                    block_pool=self.block_pool,
+                    block_pool=self.block_pool_for_spec(spec),
                     kv_cache_spec=spec,
                     use_eagle=use_eagle,
                     alignment_tokens=self.lcm_block_size,

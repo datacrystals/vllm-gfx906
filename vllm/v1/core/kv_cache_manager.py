@@ -259,7 +259,23 @@ class KVCacheManager:
             num_tokens_main_model=full_num_tokens,
         )
 
-        return num_blocks_to_allocate <= self.block_pool.get_num_free_blocks()
+        return self._pools_can_allocate(*num_blocks_to_allocate)
+
+    def _pools_can_allocate(self, shared_needed: int, mamba_needed: int) -> bool:
+        """GLM53-B2: per-pool admission.
+
+        The shared attention+tail pool and the compact mamba-state pool are
+        checked independently; a request is admitted only if both can be
+        served. ``MambaManager``'s same-step-state deferral trick still works:
+        it reports ``num_gpu_blocks + 1`` against the mamba pool, which can
+        never be free, so the request is deferred one step.
+        """
+        if shared_needed > self.block_pool.get_num_free_blocks():
+            return False
+        mamba_pool = self.coordinator.mamba_block_pool
+        if mamba_pool is not None and mamba_needed > mamba_pool.get_num_free_blocks():
+            return False
+        return True
 
     def allocate_slots(
         self,
@@ -391,7 +407,7 @@ class KVCacheManager:
             num_tokens_main_model=num_tokens_main_model,
         )
 
-        if num_blocks_to_allocate > self.block_pool.get_num_free_blocks():
+        if not self._pools_can_allocate(*num_blocks_to_allocate):
             # Cannot allocate new blocks
             return None
 
@@ -475,6 +491,11 @@ class KVCacheManager:
         """
         if not self.block_pool.reset_prefix_cache():
             return False
+        # GLM53-B2: the mamba-state pool must be reset too, or a stale KDA
+        # state can be served against a fresh attention prefix.
+        mamba_pool = self.coordinator.mamba_block_pool
+        if mamba_pool is not None and not mamba_pool.reset_prefix_cache():
+            return False
         if self.log_stats:
             assert self.prefix_cache_stats is not None
             self.prefix_cache_stats.reset = True
@@ -520,7 +541,12 @@ class KVCacheManager:
         Returns:
             A list of KV cache events.
         """
-        return self.block_pool.take_events()
+        # GLM53-B2: drain both pools so mamba-pool events are not dropped.
+        events = self.block_pool.take_events()
+        mamba_pool = self.coordinator.mamba_block_pool
+        if mamba_pool is not None:
+            events = events + mamba_pool.take_events()
+        return events
 
     def get_blocks(self, request_id: str) -> KVCacheBlocks:
         """Get the blocks of a request."""

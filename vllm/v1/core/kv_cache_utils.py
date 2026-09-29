@@ -1267,17 +1267,38 @@ def _glm5_next_layout(
     return attn_group, mamba_groups, tail_group
 
 
+def _glm5_mamba_state_slots(
+    vllm_config: VllmConfig, num_speculative_blocks: int
+) -> tuple[int, int]:
+    """GLM53-B2: size of the compact mamba-state id space.
+
+    Returns ``(num_slots, b_cache)``. One null id, plus per request the live
+    align-mode state window (2 + num_speculative_blocks) plus 2 slack slots for
+    the prev/copy window and prefill transients, plus a retained boundary-state
+    cache budget (the mamba prefix cache) tunable via
+    ``VLLM_GLM53_MAMBA_STATE_CACHE_SLOTS``.
+    """
+    max_num_seqs = vllm_config.scheduler_config.max_num_seqs
+    slots_per_req = 2 + num_speculative_blocks + 2
+    b_cache = int(
+        os.environ.get(
+            "VLLM_GLM53_MAMBA_STATE_CACHE_SLOTS", str(max(32, 2 * max_num_seqs))
+        )
+    )
+    num_slots = 1 + max_num_seqs * slots_per_req + b_cache
+    return num_slots, b_cache
+
+
 def _get_kv_cache_config_glm5_next(
     vllm_config: VllmConfig,
     kv_cache_groups: list[KVCacheGroupSpec],
     available_memory: int,
     suppress_log: bool = False,
-) -> tuple[int, list[KVCacheTensor]]:
-    """GLM53-PORT: one tensor per layer; a single shared block-id pool whose
-    per-block byte budget is the sum of every layer's page size (MLA + kpool
-    indexer + KDA mamba states + kpool tail). Unlike upstream (and unlike the
-    DSV4 allocator), no cross-group aliasing is used: a block id taken by one
-    group is exclusive to it, so per-layer tensors are correct and simpler."""
+) -> tuple[int, list[KVCacheTensor], int]:
+    """GLM53-PORT: one tensor per layer. The shared block-id pool carries the
+    attention + kpool-tail pages only; the KDA mamba state lives in its own
+    compact slot space of ``mamba_num_slots`` ids (Option B), so its tensors are
+    sized by the slot count, not by ``num_blocks``."""
     layout = _glm5_next_layout(kv_cache_groups)
     assert layout is not None
     attn_group, mamba_groups, tail_group = layout
@@ -1290,20 +1311,56 @@ def _get_kv_cache_config_glm5_next(
     # layer_count, not the group spec's single page_size. Under-counting
     # overestimates num_blocks (~34x for 34 KDA layers) and OOMs when the
     # per-layer tensors are actually allocated.
-    for group in mamba_groups:
-        bytes_per_block += group.kv_cache_spec.page_size_bytes * len(
-            group.layer_names)
     if tail_group is not None:
         bytes_per_block += sum(
             tail_group.kv_cache_spec.kv_cache_specs[name].page_size_bytes
             for name in tail_group.layer_names)
 
-    num_blocks = available_memory // bytes_per_block
+    # GLM53-B2: mamba state is a fixed slot pool outside the shared block ids.
+    mamba_slots = 0
+    fixed_state_bytes = 0
+    if mamba_groups:
+        any_mamba = mamba_groups[0].kv_cache_spec
+        assert all(group.kv_cache_spec == any_mamba for group in mamba_groups)
+        mamba_slots, b_cache = _glm5_mamba_state_slots(
+            vllm_config, any_mamba.num_speculative_blocks
+        )
+        fixed_state_bytes = sum(
+            mamba_slots * group.kv_cache_spec.page_size_bytes * len(group.layer_names)
+            for group in mamba_groups
+        )
+        logger.info(
+            "GLM53-B2 mamba state pool: slots=%d (B_cache=%d, max_num_seqs=%d, "
+            "num_speculative_blocks=%d), fixed_state_bytes=%.2f MiB, "
+            "shared bytes_per_block=%.2f MiB",
+            mamba_slots,
+            b_cache,
+            vllm_config.scheduler_config.max_num_seqs,
+            any_mamba.num_speculative_blocks,
+            fixed_state_bytes / 2**20,
+            bytes_per_block / 2**20,
+        )
+    assert available_memory > fixed_state_bytes, (
+        f"GLM53-B2: mamba state pool ({fixed_state_bytes} B) exceeds available "
+        f"KV cache memory ({available_memory} B); lower "
+        f"VLLM_GLM53_MAMBA_STATE_CACHE_SLOTS or gpu-memory-utilization"
+    )
+
+    num_blocks = (available_memory - fixed_state_bytes) // bytes_per_block
     num_blocks = may_override_num_blocks(vllm_config, num_blocks, suppress_log)
 
     kv_cache_tensors: list[KVCacheTensor] = []
     for group in kv_cache_groups:
-        if isinstance(group.kv_cache_spec, UniformTypeKVCacheSpecs):
+        if isinstance(group.kv_cache_spec, MambaSpec):
+            for layer_name in group.layer_names:
+                kv_cache_tensors.append(
+                    KVCacheTensor(
+                        size=group.kv_cache_spec.page_size_bytes * mamba_slots,
+                        shared_by=[layer_name],
+                        fixed_slots=mamba_slots,
+                    )
+                )
+        elif isinstance(group.kv_cache_spec, UniformTypeKVCacheSpecs):
             per_layer = group.kv_cache_spec.kv_cache_specs
             for layer_name in group.layer_names:
                 kv_cache_tensors.append(
@@ -1320,7 +1377,7 @@ def _get_kv_cache_config_glm5_next(
                         shared_by=[layer_name],
                     )
                 )
-    return num_blocks, kv_cache_tensors
+    return num_blocks, kv_cache_tensors, mamba_slots
 
 
 def _get_kv_cache_config_deepseek_v4(
@@ -1407,6 +1464,7 @@ def get_kv_cache_config_from_groups(
         )
 
     # Determine how model runners should initialize the KV cache tensors.
+    mamba_num_slots = 0
     if len(kv_cache_groups) == 1 and isinstance(
         kv_cache_groups[0].kv_cache_spec, UniformTypeKVCacheSpecs
     ):
@@ -1429,8 +1487,10 @@ def get_kv_cache_config_from_groups(
         ]
     elif _glm5_next_layout(kv_cache_groups) is not None:
         # GLM53-PORT: GLM-5.3-Flash (MLA + kpool indexer + KDA mamba + tail).
-        num_blocks, kv_cache_tensors = _get_kv_cache_config_glm5_next(
-            vllm_config, kv_cache_groups, available_memory, suppress_log
+        num_blocks, kv_cache_tensors, mamba_num_slots = (
+            _get_kv_cache_config_glm5_next(
+                vllm_config, kv_cache_groups, available_memory, suppress_log
+            )
         )
     elif all(
         isinstance(group.kv_cache_spec, UniformTypeKVCacheSpecs)
@@ -1477,6 +1537,7 @@ def get_kv_cache_config_from_groups(
         num_blocks=num_blocks,
         kv_cache_tensors=kv_cache_tensors,
         kv_cache_groups=kv_cache_groups,
+        mamba_num_slots=mamba_num_slots,
     )
 
 
@@ -2231,6 +2292,10 @@ def get_kv_cache_configs(
 
         # Shrink tensor size proportionally
         for tensor in kv_cache_config.kv_cache_tensors:
+            if tensor.fixed_slots is not None:
+                # GLM53-B2: mamba state tensors are sized by their own fixed
+                # slot space and do not scale with num_blocks.
+                continue
             assert tensor.size % num_blocks_old == 0
             tensor.size = tensor.size // num_blocks_old * min_num_blocks
 

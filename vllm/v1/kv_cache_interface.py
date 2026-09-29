@@ -753,6 +753,10 @@ class KVCacheTensor:
 
     size: int  # size of the KV cache tensor in bytes
     shared_by: list[str]  # layer names that share the same KV cache tensor
+    fixed_slots: int | None = None
+    """GLM53-B2: when set, this tensor holds exactly ``fixed_slots`` pages and
+    its ``size`` is authoritative, independent of ``KVCacheConfig.num_blocks``
+    (used for mamba/KDA state in its own compact slot space)."""
 
 
 @dataclass
@@ -788,6 +792,11 @@ class KVCacheConfig:
     For models with multiple types of attention, there will be multiple groups,
     see `_get_kv_cache_config_uniform_page_size` for more details.
     """
+    mamba_num_slots: int = 0
+    """GLM53-B2: size of the compact mamba-state block-id space (0 = none).
+    When > 0 the mamba/KDA groups draw block ids from their own BlockPool of
+    this size and their state tensors are ``mamba_num_slots`` pages tall;
+    ``num_blocks`` counts only the shared attention+tail pool ids."""
 
     @property
     def has_mamba_layers(self) -> bool:
