@@ -2,6 +2,8 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 from dataclasses import dataclass
 
+import os
+
 import torch
 
 import vllm.envs as envs
@@ -411,7 +413,13 @@ def get_max_prefill_buffer_size(vllm_config: VllmConfig):
     # within the flashmla_sparse workspace.
     # For DeepSeek-V3.2, the max_model_len is 163840.
     #   40 * 163840 * 132 = 865075200 bytes = 825 MB
-    return max_model_len * 40
+    # GLM53-PORT: on gfx906 the entry is 256 B fp16; 40x costs 335 MB at 32k,
+    # 671 MB at 64k, 1.34 GB at 128k per rank, while chunking only needs
+    # sum(compressed_seq_lens) <= max_model_len/4 (LONGCTX addendum). Allow a
+    # smaller multiplier via env; 4x still leaves >=4x headroom over that.
+    mult = int(os.environ.get("VLLM_GLM53_INDEXER_WS_MULT", "40"))
+    assert mult >= 1, "indexer prefill workspace must hold at least one max-len request"
+    return max_model_len * mult
 
 
 class DeepseekV32IndexerMetadataBuilder(AttentionMetadataBuilder):
