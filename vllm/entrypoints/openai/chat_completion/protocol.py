@@ -61,7 +61,7 @@ class ChatMessage(OpenAIBaseModel):
     tool_calls: list[ToolCall] = Field(default_factory=list)
 
     # vLLM-specific fields that are not in OpenAI spec
-    reasoning: str | None = None
+    reasoning: str | None = Field(default=None, exclude=True)
     # DeepSeek-style alias so standard clients (reasoning_content) work too;
     # mirrored from `reasoning` at validation time.
     reasoning_content: str | None = None

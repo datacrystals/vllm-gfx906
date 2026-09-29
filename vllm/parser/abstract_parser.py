@@ -52,6 +52,13 @@ class StreamState:
     reasoning_ended: bool = False
     tool_call_text_started: bool = False
     prompt_reasoning_checked: bool = False
+    # GLM53-PORT: after reasoning ends via the special end-token id, the
+    # model sometimes also emits the end marker a second time as literal
+    # TEXT tokens ("</" "t" "hi" "nk" ">"). While suppress_endrun is set,
+    # content is buffered and any leading run of literal end markers
+    # (whitespace-separated) is swallowed instead of leaked into content.
+    suppress_endrun: bool = False
+    endrun_buffer: str = ""
     previous_text: str = ""
     previous_token_ids: list[int] = field(default_factory=list)
     history_tool_call_cnt: int = 0
@@ -615,6 +622,33 @@ class DelegatingParser(Parser):
             return input_ids
         return self._reasoning_parser.extract_content_ids(input_ids)
 
+    def _strip_leading_endrun(self, buf: str) -> tuple[str, bool]:
+        """GLM53-PORT: strip a leading run of literal end markers.
+
+        Returns (remainder, decided). Undecided when the buffer could still
+        extend a run (empty remainder, or a partial end-marker prefix), in
+        which case the caller keeps buffering. A hard cap forces a decision
+        so a pathological buffer cannot grow unbounded.
+        """
+        end = "</think>"
+        rp = self._reasoning_parser
+        if rp is not None and getattr(rp, "end_token", None):
+            end = rp.end_token
+        i, n = 0, len(buf)
+        while True:
+            while i < n and buf[i] in " \t\n\r":
+                i += 1
+            if buf.startswith(end, i):
+                i += len(end)
+                continue
+            break
+        rem = buf[i:]
+        if rem == "":
+            return "", len(buf) > 4096
+        if len(rem) < len(end) and end.startswith(rem):
+            return "", len(buf) > 4096
+        return rem, True
+
     def _in_reasoning_phase(self, state: StreamState) -> bool:
         if self._reasoning_parser is None:
             return False
@@ -642,6 +676,8 @@ class DelegatingParser(Parser):
             state.prompt_reasoning_checked = True
             if self.is_reasoning_end(prompt_token_ids):
                 state.reasoning_ended = True
+                state.suppress_endrun = True
+                state.endrun_buffer = ""
 
         current_text = state.previous_text + delta_text
         current_token_ids = state.previous_token_ids + delta_token_ids
@@ -660,6 +696,8 @@ class DelegatingParser(Parser):
             # Hand off remaining content to tool parser
             if self._tool_parser and self.is_reasoning_end(delta_token_ids):
                 state.reasoning_ended = True
+                state.suppress_endrun = True
+                state.endrun_buffer = ""
                 current_token_ids = self.extract_content_ids(delta_token_ids)
                 if delta_message and delta_message.content:
                     current_text = delta_message.content
@@ -675,6 +713,20 @@ class DelegatingParser(Parser):
                 state.previous_token_ids = []
                 delta_text = current_text
                 delta_token_ids = current_token_ids
+
+            # GLM53-PORT: swallow a leading literal end-marker run (the
+            # model's duplicated text "</think>") before the tool parser
+            # (or plain-content passthrough) sees any of it.
+            if state.suppress_endrun:
+                state.endrun_buffer += delta_text
+                rem, decided = self._strip_leading_endrun(state.endrun_buffer)
+                if not decided:
+                    state.previous_text = current_text
+                    state.previous_token_ids = current_token_ids
+                    return None
+                state.suppress_endrun = False
+                state.endrun_buffer = ""
+                delta_text = rem
 
             delta_message, state.function_name_returned = (
                 self._extract_tool_calls_streaming(

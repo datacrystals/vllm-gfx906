@@ -258,7 +258,7 @@ class ExtractedToolCallInformation(BaseModel):
 class DeltaMessage(OpenAIBaseModel):
     role: str | None = None
     content: str | None = None
-    reasoning: str | None = None
+    reasoning: str | None = Field(default=None, exclude=True)
     # DeepSeek-style alias; mirrored from `reasoning` at validation time.
     reasoning_content: str | None = None
     tool_calls: list[DeltaToolCall] = Field(default_factory=list)
