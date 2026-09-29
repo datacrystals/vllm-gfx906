@@ -1296,7 +1296,6 @@ def _get_kv_cache_config_glm5_next(
     if tail_group is not None:
         bytes_per_block += sum(
             tail_group.kv_cache_spec.kv_cache_specs[name].page_size_bytes
-            * len(tail_group.layer_names)
             for name in tail_group.layer_names)
 
     num_blocks = available_memory // bytes_per_block
@@ -1916,11 +1915,17 @@ def _max_memory_usage_bytes_from_groups(
         attn_group, mamba_groups, tail_group = glm5_layout
         inner = attn_group.kv_cache_spec.kv_cache_specs
         bytes_per_block = sum(spec.page_size_bytes for spec in inner.values())
+        # GLM53-B1: mamba groups hold one tensor PER LAYER (matches
+        # _get_kv_cache_config_glm5_next); the old code counted each group
+        # once (under-count x34). Tail likewise sums per-layer pages.
         bytes_per_block += sum(
-            group.kv_cache_spec.page_size_bytes for group in mamba_groups
+            group.kv_cache_spec.page_size_bytes * len(group.layer_names)
+            for group in mamba_groups
         )
         if tail_group is not None:
-            bytes_per_block += tail_group.kv_cache_spec.page_size_bytes
+            bytes_per_block += sum(
+                tail_group.kv_cache_spec.kv_cache_specs[name].page_size_bytes
+                for name in tail_group.layer_names)
         total_blocks = attn_group.kv_cache_spec.max_memory_usage_pages(vllm_config)
         total_blocks += sum(
             math.ceil(
