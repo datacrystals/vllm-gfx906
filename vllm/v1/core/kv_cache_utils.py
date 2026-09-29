@@ -870,12 +870,59 @@ def is_kv_cache_spec_uniform(kv_cache_spec: dict[str, KVCacheSpec]) -> bool:
     return True
 
 
+def _glm5_attn_block_and_spec(
+    kv_cache_config: KVCacheConfig,
+) -> tuple[int, int] | None:
+    """GLM53-B2: (attn_block_size, num_speculative_blocks) for the GLM-5.3
+    layout, or None when mamba_num_slots == 0.
+
+    Works on both the worker-side grouped config (tail group is a
+    UniformTypeKVCacheSpecs of KpoolTailSpecs) and the scheduler-side
+    flattened config (tail group is a bare KpoolTailSpec).
+    """
+    if kv_cache_config.mamba_num_slots <= 0:
+        return None
+    attn_block_sizes: list[int] = []
+    num_speculative_blocks = 0
+    for group in kv_cache_config.kv_cache_groups:
+        spec = group.kv_cache_spec
+        if isinstance(spec, MambaSpec):
+            num_speculative_blocks = max(
+                num_speculative_blocks, spec.num_speculative_blocks
+            )
+            continue
+        if isinstance(spec, KpoolTailSpec):
+            continue
+        if isinstance(spec, UniformTypeKVCacheSpecs) and all(
+            isinstance(inner, KpoolTailSpec) for inner in spec.kv_cache_specs.values()
+        ):
+            continue
+        attn_block_sizes.append(spec.block_size)
+    if not attn_block_sizes:
+        return None
+    return min(attn_block_sizes), num_speculative_blocks
+
+
 def get_max_concurrency_for_kv_cache_config(
     vllm_config: VllmConfig, kv_cache_config: KVCacheConfig
 ) -> float:
     """
     Get the maximum concurrency for the given KV cache configuration.
     """
+    glm5 = _glm5_attn_block_and_spec(kv_cache_config)
+    if glm5 is not None:
+        # GLM53-B2: state memory is outside num_blocks; concurrency is bound
+        # either by shared attention ids (one max-len request needs
+        # cdiv(max_model_len, attn_block_size) of them) or by the compact
+        # mamba-state slot pool (live window 2 + num_speculative_blocks per
+        # request, minus the null id).
+        attn_block_size, num_speculative_blocks = glm5
+        max_model_len = vllm_config.model_config.max_model_len
+        attn_term = kv_cache_config.num_blocks / cdiv(max_model_len, attn_block_size)
+        state_term = (kv_cache_config.mamba_num_slots - 1) / (
+            2 + num_speculative_blocks
+        )
+        return min(attn_term, state_term)
     num_layer_per_group = max(
         len(group.layer_names) for group in kv_cache_config.kv_cache_groups
     )
@@ -1927,11 +1974,19 @@ def _report_kv_cache_config(
     )
 
     # Log the KV cache size and maximum concurrency.
-    num_tokens = (
-        kv_cache_config.num_blocks
-        // len(kv_cache_config.kv_cache_groups)
-        * min_block_size
-    )
+    glm5 = _glm5_attn_block_and_spec(kv_cache_config)
+    if glm5 is not None:
+        # GLM53-B2: num_blocks counts shared attention+tail ids only; each id
+        # covers attn_block_size tokens of attention KV. Decode rule:
+        # GPU KV cache size tokens = num_blocks * attn_block_size; the mamba
+        # state pool is reported separately on the next line.
+        num_tokens = kv_cache_config.num_blocks * glm5[0]
+    else:
+        num_tokens = (
+            kv_cache_config.num_blocks
+            // len(kv_cache_config.kv_cache_groups)
+            * min_block_size
+        )
     dcp_size = vllm_config.parallel_config.decode_context_parallel_size
     pcp_size = vllm_config.parallel_config.prefill_context_parallel_size
     if pcp_size * dcp_size > 1:
@@ -1945,6 +2000,13 @@ def _report_kv_cache_config(
         )
     num_tokens_str = f"{num_tokens:,}"
     logger.info_once("GPU KV cache size: %s tokens", num_tokens_str)
+    if glm5 is not None:
+        b_cache = _glm5_mamba_state_slots(vllm_config, glm5[1])[1]
+        logger.info_once(
+            "mamba state slots: %d (B_cache=%d)",
+            kv_cache_config.mamba_num_slots,
+            b_cache,
+        )
     max_model_len_str = f"{vllm_config.model_config.max_model_len:,}"
     max_concurrency = get_max_concurrency_for_kv_cache_config(
         vllm_config, kv_cache_config
