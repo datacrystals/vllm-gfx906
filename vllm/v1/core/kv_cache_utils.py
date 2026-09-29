@@ -2033,33 +2033,35 @@ def _max_memory_usage_bytes_from_groups(
         return 0
 
     if (glm5_layout := _glm5_next_layout(kv_cache_groups)) is not None:
-        # GLM53-PORT: per-layer-tensor accounting matching
-        # _get_kv_cache_config_glm5_next (no cross-group aliasing).
+        # GLM53-B2: the shared block-id pool carries attention + tail pages
+        # only; mamba state is a fixed slot pool sized at config time. Needed
+        # memory = one max-len request's shared blocks (attn pages + the tail
+        # ring block) times the per-id cost, plus the whole fixed state pool.
+        # This keeps --max-model-len 262144/524288 boots from false-failing
+        # the startup memory check on a per-block mamba charge.
         attn_group, mamba_groups, tail_group = glm5_layout
         inner = attn_group.kv_cache_spec.kv_cache_specs
         bytes_per_block = sum(spec.page_size_bytes for spec in inner.values())
-        # GLM53-B1: mamba groups hold one tensor PER LAYER (matches
-        # _get_kv_cache_config_glm5_next); the old code counted each group
-        # once (under-count x34). Tail likewise sums per-layer pages.
-        bytes_per_block += sum(
-            group.kv_cache_spec.page_size_bytes * len(group.layer_names)
-            for group in mamba_groups
-        )
+        tail_ring_blocks = 0
         if tail_group is not None:
             bytes_per_block += sum(
                 tail_group.kv_cache_spec.kv_cache_specs[name].page_size_bytes
                 for name in tail_group.layer_names)
-        total_blocks = attn_group.kv_cache_spec.max_memory_usage_pages(vllm_config)
-        total_blocks += sum(
-            math.ceil(
-                group.kv_cache_spec.max_memory_usage_bytes(vllm_config)
-                / group.kv_cache_spec.page_size_bytes
+            tail_ring_blocks = 1
+        attn_pages = attn_group.kv_cache_spec.max_memory_usage_pages(vllm_config)
+        shared_bytes = (attn_pages + tail_ring_blocks) * bytes_per_block
+        fixed_state_bytes = 0
+        if mamba_groups:
+            mamba_slots, _ = _glm5_mamba_state_slots(
+                vllm_config, mamba_groups[0].kv_cache_spec.num_speculative_blocks
             )
-            for group in mamba_groups
-        )
-        if tail_group is not None:
-            total_blocks += 1
-        return total_blocks * bytes_per_block
+            fixed_state_bytes = sum(
+                mamba_slots
+                * group.kv_cache_spec.page_size_bytes
+                * len(group.layer_names)
+                for group in mamba_groups
+            )
+        return shared_bytes + fixed_state_bytes
 
     if len(kv_cache_groups) == 1 and isinstance(
         kv_cache_groups[0].kv_cache_spec, UniformTypeKVCacheSpecs
