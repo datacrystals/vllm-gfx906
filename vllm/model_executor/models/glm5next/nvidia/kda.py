@@ -146,17 +146,23 @@ class Glm5NextLinearAttention(GatedDeltaNetAttention):
             raise ValueError("model_config and cache_config must be set")
         # GLM53-PORT: this fork's kda_state_dtype covers KimiLinear's 3-conv
         # layout; GLM-5.3 uses a single merged q|k|v conv state + recurrent
-        # state. Match upstream semantics: conv state at cache dtype,
-        # recurrent stays fp32 (kernels accumulate in fp32; scatter_states
-        # refuses fp32→fp16 writes).
-        conv_state_dtype = (
+        # state. GLM53-OPT-A: recurrent dtype follows --mamba-ssm-cache-dtype
+        # (fp32 storage by default == historic behavior; float16 halves the
+        # dominant 17.6 MiB/block KDA charge). Kernels accumulate in fp32 and
+        # store through .to(dtype); scatter/gather cast, so fp16 storage is
+        # safe. (Note: --enable-mamba-cache-stochastic-rounding is NOT wired
+        # into the GDN/KDA path — it exists for mamba2 ops only.)
+        conv_state_dtype, temporal_state_dtype = (
             MambaStateDtypeCalculator.gated_delta_net_state_dtype(
                 self.model_config.dtype,
                 self.cache_config.mamba_cache_dtype,
                 self.cache_config.mamba_ssm_cache_dtype,
-            )[0]
+            )
         )
-        return (conv_state_dtype, torch.float32)
+        if self.cache_config.mamba_ssm_cache_dtype == "auto":
+            # preserve historic GLM53 behavior on the default config
+            temporal_state_dtype = torch.float32
+        return (conv_state_dtype, temporal_state_dtype)
 
     def get_state_shape(
         self,
