@@ -10,10 +10,13 @@
 # ruff: noqa: E501
 
 
+import os
+
 import torch
 
 from vllm.model_executor.layers.fla.ops.chunk_delta_h import (
     chunk_gated_delta_rule_fwd_h,
+    chunk_gated_delta_rule_fwd_kernel_h_blockdim64,
 )
 from vllm.model_executor.layers.fla.ops.cumsum import chunk_local_cumsum
 from vllm.model_executor.layers.fla.ops.index import prepare_chunk_indices
@@ -37,6 +40,53 @@ from vllm.triton_utils import tl, triton
 from vllm.utils.math_utils import RCP_LN2, cdiv, next_power_of_2
 
 from .fused_recurrent import fused_recurrent_gated_delta_rule_fwd_kernel
+
+# GLM53-KDATUNE: opt-in prefill tuning measured by tools/kda_prefill_bench.py
+# on gfx906 (MI50). The chunked-prefill chain is ~2x faster at chunk BT=16
+# than stock FLA_CHUNK_SIZE=64 (T=512..4096, rel <= 5.9e-3 vs the BT=64
+# output; solve_tril caps BT at 64), and 2.8x with the measured-best
+# per-kernel autotune configs pinned. Env gate (default off = stock):
+#   VLLM_KDA_PREFILL_TUNING=1  -> chunk BT=16 + tuned configs
+#   VLLM_KDA_PREFILL_TUNING=32 -> chunk BT=32, stock configs (~1.8x)
+_KDA_PREFILL_TUNING_APPLIED = False
+
+
+def _apply_kda_prefill_tuning() -> int:
+    """Return the chunk size to use; pin tuned configs once when asked."""
+    global _KDA_PREFILL_TUNING_APPLIED
+    mode = os.environ.get("VLLM_KDA_PREFILL_TUNING", "0")
+    if mode in ("0", ""):
+        return FLA_CHUNK_SIZE
+    if mode == "1":
+        chunk_size = 16
+    elif mode == "32":
+        chunk_size = 32
+    elif mode == "64":
+        chunk_size = 64
+    else:
+        raise ValueError(
+            f"VLLM_KDA_PREFILL_TUNING must be 0, 1, 32 or 64; got {mode!r}"
+        )
+    if not _KDA_PREFILL_TUNING_APPLIED:
+        _KDA_PREFILL_TUNING_APPLIED = True
+        if chunk_size == 16:
+            # winners of the BT=16 config sweep (full-chain ms, T=2048):
+            # gla_o 1.09x, delta_h 1.16x vs the stock autotune picks
+            tuned = {
+                chunk_gla_fwd_kernel_o: [
+                    triton.Config({"BK": 32, "BV": 128}, num_warps=2, num_stages=2)
+                ],
+                chunk_gated_delta_rule_fwd_kernel_h_blockdim64: [
+                    triton.Config({"BV": 16}, num_warps=2, num_stages=1)
+                ],
+            }
+            for kernel, configs in tuned.items():
+                k = kernel
+                while not (hasattr(k, "configs") and hasattr(k, "cache")):
+                    k = k.fn
+                k.configs = list(configs)
+                k.cache.clear()
+    return chunk_size
 
 BT_LIST_AUTOTUNE = [32, 64, 128]
 NUM_WARPS_AUTOTUNE = [2, 4, 8, 16] if is_amd else [4, 8, 16, 32]
@@ -1087,7 +1137,7 @@ def chunk_kda_fwd(
     output_final_state: bool,
     cu_seqlens: torch.Tensor | None = None,
 ):
-    chunk_size = FLA_CHUNK_SIZE
+    chunk_size = _apply_kda_prefill_tuning()
     chunk_indices = (
         prepare_chunk_indices(cu_seqlens, chunk_size)
         if cu_seqlens is not None
@@ -1132,7 +1182,7 @@ def chunk_kda_with_fused_gate_fwd(
     safe_gate: bool = False,
     lower_bound: float = -5.0,
 ):
-    chunk_size = FLA_CHUNK_SIZE
+    chunk_size = _apply_kda_prefill_tuning()
     chunk_indices = (
         prepare_chunk_indices(cu_seqlens, chunk_size)
         if cu_seqlens is not None
