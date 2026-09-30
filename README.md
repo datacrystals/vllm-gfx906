@@ -1,3 +1,35 @@
+## GLM-5.3-Flash production numbers (8x MI50, Sept 2026)
+
+Everything below is **measured on 8x AMD MI50 32GB (gfx906, PCIe, no matrix
+cores)** -- the "can't run big models" GPUs -- serving
+**GLM-5.3-Flash-AWQ-INT4** with this fork. Yes, really.
+
+| Metric | Number | Notes |
+|---|---|---|
+| Context | **262,144 tokens** | needle-validated at 249k @ 50% depth |
+| Concurrency @256k | **2.25x** | two full-length conversations at once |
+| Context @128k | 4.72x concurrency | needles green to 100k |
+| Context @512k | 1.08x single-shot | deep-prefill transient known |
+| Decode | **15.2-16.6 tok/s** | +45% via MTP + collective tuning |
+| Prefill | **318 tok/s @ 60k** | kernel work ongoing, 600+ in sights |
+| All-reduce (8-way) | **132 us** (was 456) | ACS register reprogramming |
+| KV pool | 590k tokens @256k cfg | custom mamba-state pool decoupling |
+
+Engineering highlights behind the numbers:
+
+- **KV pool decoupling**: KDA recurrent state removed from the per-block
+  charge (20.76 -> 2.94 MiB/block) -- turns 8x32GB into a 256k-context box.
+- **fp16 KDA recurrent state** (fp32 accumulate in-kernel): +50% KV
+  capacity, quality-verified with needle probes at 100k depth.
+- **ACS register map cracked**: PLX downstream + Intel root-port ACS
+  redirect bits reprogrammed live (post-boot unit) -> 3.5x collectives.
+- **MTP speculative decoding glue** for the GLM53 draft layer (gated off
+  pending a verify fix).
+- Survived: corrupt-pyc segfaults from hard resets, triton compile
+  marathons masquerading as hangs, and one very stubborn switch fabric.
+
+---
+
 ## Mini Install Guide for GFX906
 
 ### 🐳 Using Pre-built Docker Image (Recommended)
