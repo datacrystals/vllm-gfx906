@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
+import os
+
 import torch
 
 import vllm.envs as envs
@@ -535,6 +537,144 @@ def triton_mla_sparse_vec(
 
 # Inspired from
 # https://github.com/deepseek-ai/FlashMLA/blob/082094b793fcc7452977d0a71a00e266a2e3061e/tests/ref.py
+
+
+
+# GLM53-KC-DUMP: engine-contract capture for tools/engine_contract_replay.py.
+# Usage: launch the server with VLLM_GLM53_KC_DUMP=/abs/path.npz. The FIRST
+# _forward_kv call with num_tokens > 256 is written verbatim to that path and
+# the FIRST call with num_tokens <= 4 to <path>.decode.npz.  Replay offline:
+#     python3 tools/engine_contract_replay.py /abs/path.npz [--bench N]
+# Guards: once-per-file (O_EXCL lock), skipped during CUDA-graph capture (D2H
+# syncs would corrupt the capture).  One TP worker wins the O_EXCL race; every
+# worker holds the same kv/index contract, so any winner is representative.
+_GLM53_KC_DUMP_DONE: set = set()
+
+
+def _glm53_kc_dump(
+    impl: "ROCMAiterMLASparseImpl",
+    q: torch.Tensor,
+    kv_c_and_k_pe_cache: torch.Tensor,
+    topk_indices: torch.Tensor,
+    num_tokens: int,
+    attn_metadata: "ROCMAiterMLASparseMetadata",
+) -> None:
+    path = os.environ.get("VLLM_GLM53_KC_DUMP")
+    if not path or torch.cuda.is_current_stream_capturing():
+        return
+    if num_tokens > 256:
+        out_path = path
+    elif num_tokens <= 4:
+        out_path = (path[:-4] if path.endswith(".npz") else path) + ".decode.npz"
+    else:
+        return
+    if out_path in _GLM53_KC_DUMP_DONE:
+        return
+    _GLM53_KC_DUMP_DONE.add(out_path)
+    lock = out_path + ".lock"
+    try:
+        os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+    except FileExistsError:
+        return
+
+    kv_view = kv_c_and_k_pe_cache.view(-1, 1, kv_c_and_k_pe_cache.shape[-1])
+    idx_view = topk_indices.view(num_tokens, 1, -1)
+    # Ground truth: the reference path output.  Clone indices first: the
+    # reference zeroes invalid entries of its input in place.
+    out_ref = reference_mla_sparse_prefill(
+        q, kv_view, idx_view.clone(), impl.softmax_scale, impl.kv_lora_rank)
+    out_unpadded = AiterMLAHelper.get_mla_unpadded_o(impl.num_heads, out_ref)
+
+    np.savez(
+        out_path,
+        q=q.detach().cpu().numpy(),
+        kv=kv_c_and_k_pe_cache.detach().cpu().numpy(),
+        indices=topk_indices.detach().cpu().numpy(),
+        out_ref=out_ref.detach().cpu().numpy(),
+        out_ref_unpadded=out_unpadded.detach().cpu().numpy(),
+        scale=np.float64(impl.softmax_scale),
+        num_tokens=np.int64(num_tokens),
+        num_heads_impl=np.int64(impl.num_heads),
+        kv_lora_rank=np.int64(impl.kv_lora_rank),
+        q_shape=np.asarray(q.shape, np.int64),
+        q_stride=np.asarray(q.stride(), np.int64),
+        kv_shape=np.asarray(kv_c_and_k_pe_cache.shape, np.int64),
+        kv_stride=np.asarray(kv_c_and_k_pe_cache.stride(), np.int64),
+        indices_shape=np.asarray(topk_indices.shape, np.int64),
+        indices_dtype=str(topk_indices.dtype),
+        q_dtype=str(q.dtype),
+        kv_dtype=str(kv_c_and_k_pe_cache.dtype),
+        block_size=np.int64(getattr(attn_metadata, "block_size", -1)),
+        topk_tokens=np.int64(getattr(attn_metadata, "topk_tokens", -1)),
+        req_id_per_token=(
+            attn_metadata.req_id_per_token[:num_tokens].detach().cpu().numpy()
+            if getattr(attn_metadata, "req_id_per_token", None) is not None
+            else np.zeros(0, np.int32)),
+        block_table=(
+            attn_metadata.block_table.detach().cpu().numpy()
+            if getattr(attn_metadata, "block_table", None) is not None
+            else np.zeros((0, 0), np.int32)),
+    )
+    logger.info(
+        "GLM53-KC-DUMP: wrote %s (num_tokens=%d q=%s idx=%s kv=%s)",
+        out_path, num_tokens, tuple(q.shape), tuple(topk_indices.shape),
+        tuple(kv_c_and_k_pe_cache.shape))
+
+
+def union_gather_prefill(
+    q: torch.Tensor,       # [s_q, h_q, d_qk]
+    kv: torch.Tensor,      # [total_kv, 1, d_qk] (or [total_kv, d_qk])
+    indices: torch.Tensor, # [s_q, 1, topk] (or [s_q, topk])
+    sm_scale: float,
+    d_v: int,
+) -> torch.Tensor:
+    """GLM53-PREFILL-UNION: attention over unique index rows with scatter.
+
+    S_u[t,h,u] = scale * q[t,h] . KU[u];   S[t,h,j] = S_u[t,h,inv[t,j]]
+    P = softmax(S over j);  out[t,h] = P_scatter[t,h,:] @ KU[:, :d_v]
+
+    Semantics match reference_mla_sparse_prefill: invalid indices contribute
+    nothing (dedicated zero row), duplicate indices within a row count
+    once each (scatter_add accumulates them onto the row — same total).
+    """
+    if indices.dim() == 3:
+        indices = indices[:, 0, :]
+    if kv.dim() == 3:
+        kv = kv[:, 0, :]
+    s_q, h_q, d_qk = q.shape
+    if s_q > 64:
+        # GLM53: chunk so the [T,H,U] score tensor stays bounded
+        outs = []
+        for s0 in range(0, s_q, 64):
+            s1 = min(s0 + 64, s_q)
+            outs.append(union_gather_prefill(
+                q[s0:s1], kv[:, None, :], indices[s0:s1], sm_scale, d_v))
+        return torch.cat(outs, dim=0)
+    topk = indices.shape[1]
+    s_kv = kv.shape[0]
+
+    invalid = (indices < 0) | (indices >= s_kv)
+    safe = indices.masked_fill(invalid, 0)
+
+    u_idx, inv = torch.unique(safe.reshape(-1), return_inverse=True)
+    # GLM53-BUGFIX: engine passes int32 indices; scatter_add_ with int32
+    # index corrupts silently on ROCm (micro-tests passed only because
+    # randint gives int64). Force int64 everywhere downstream.
+    inv = inv.view(s_q, topk).to(torch.int64)
+    ku = kv.index_select(0, u_idx).contiguous()          # [U, d_qk]
+
+    su = torch.einsum("thd,ud->thu", q.float(), ku.float()) * sm_scale
+    s = su.gather(2, inv[:, None, :].expand(-1, h_q, -1))
+    s = s.masked_fill(invalid[:, None, :], float("-inf"))
+    p = torch.softmax(s, dim=-1)
+    p = p.masked_fill(invalid[:, None, :], 0.0)
+
+    p_sc = torch.zeros(s_q, h_q, u_idx.shape[0], device=q.device,
+                       dtype=torch.float32)
+    p_sc.scatter_add_(2, inv[:, None, :].expand(-1, h_q, -1), p)
+    out = torch.einsum("thu,uv->thv", p_sc, ku[:, :d_v].float())
+    return out.to(q.dtype)
+
 def reference_mla_sparse_prefill(
     q: torch.Tensor,       # [s_q, h_q, d_qk] in kv dtype
     kv: torch.Tensor,      # [total_kv, 1, d_qk]
@@ -654,15 +794,37 @@ class ROCMAiterMLASparseImpl(SparseMLAAttentionImpl[ROCMAiterMLASparseMetadata])
         attn_metadata: ROCMAiterMLASparseMetadata,
     ) -> torch.Tensor:
         num_tokens = q.shape[0]
+        if os.environ.get("VLLM_GLM53_KC_DUMP"):
+            _glm53_kc_dump(self, q, kv_c_and_k_pe_cache, topk_indices,
+                           num_tokens, attn_metadata)
         if envs.VLLM_ROCM_MLA_SPARSE_FP16:
-            # Force ref Torch (instead of using mla_sparse) as triton is still slower than chunked torch (1.5 vs 8 TFLOPS) and not steady enough (HSA_STATUS_ERROR_OUT_OF_RESOURCES when running with max-num-batched-tokens 8192)
-            output = reference_mla_sparse_prefill(
-                q,
-                kv_c_and_k_pe_cache.view(-1, 1, kv_c_and_k_pe_cache.shape[-1]),
-                topk_indices.view(num_tokens, 1, -1),
-                self.softmax_scale,
-                self.kv_lora_rank,
-            )
+            # GLM53-PREFILL-UNION: env-gated union-GEMM path (measured 2.06x
+            # on the attention core at topk=2048). Default off = reference.
+            # GLM53-UNION-UNPAD-FIX: do NOT early-return the union output.
+            # The caller pads the head dim (AiterMLAHelper.get_mla_padded_q
+            # repeat_interleaves heads when num_heads < 16: GLM-5.3 TP8 is
+            # 64 heads -> 8/rank -> 16 padded), and every path must fall
+            # through get_mla_unpadded_o below. Returning the raw 16-head
+            # tensor made _v_up_proj fold [s_q, 16, d_v] as [2*s_q, 8, d_v]
+            # and scramble the layer output (needle quality died while
+            # generation stayed fluent).
+            if (os.environ.get("VLLM_GLM53_PREFILL_UNION", "0") == "1"
+                    and not torch.cuda.is_current_stream_capturing()):
+                output = union_gather_prefill(
+                    q,
+                    kv_c_and_k_pe_cache.view(-1, 1, kv_c_and_k_pe_cache.shape[-1]),
+                    topk_indices.view(num_tokens, 1, -1),
+                    self.softmax_scale,
+                    self.kv_lora_rank,
+                )
+            else:
+                output = reference_mla_sparse_prefill(
+                    q,
+                    kv_c_and_k_pe_cache.view(-1, 1, kv_c_and_k_pe_cache.shape[-1]),
+                    topk_indices.view(num_tokens, 1, -1),
+                    self.softmax_scale,
+                    self.kv_lora_rank,
+                )
         else:
             mla_num_heads = AiterMLAHelper.get_actual_mla_num_heads(self.num_heads)
             output = torch.empty(
