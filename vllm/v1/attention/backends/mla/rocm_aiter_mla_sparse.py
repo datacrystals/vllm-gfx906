@@ -186,7 +186,11 @@ class ROCMAiterMLASparseMetadataBuilder(
 
         self.num_heads = self.model_config.get_num_attention_heads(parallel_config)
         self.mla_dims = get_mla_dims(self.model_config)
-        self.topk_tokens = vllm_config.model_config.hf_config.index_topk
+        # GLM53-PREFILL: env override for retrieval width (A/B vs 2048).
+        import os as _os
+        self.topk_tokens = int(_os.environ.get(
+            "VLLM_GLM53_INDEX_TOPK",
+            vllm_config.model_config.hf_config.index_topk))
         # GLM53-PORT: GLM-5.3 kpool expand (+ always-select tail) yields
         # index_topk + index_kpool - 1 indices per row, 128-aligned. The
         # global-index conversion (triton_convert_req_index_to_global_index)
