@@ -364,3 +364,18 @@ entity` in dmesg and rocm-smi/ps HANGING. Symptom triage for this box:
     wedge, not code -- do NOT bisect code, ipmitool chassis power reset.
   - after ANY power reset: wipe venv *.pyc (mandatory), then boot with the
     segfault retry loop.
+
+## KDA prefill tuning: QUALITY VERDICT (2026-10-01)
+VLLM_KDA_PREFILL_TUNING=1 (BT=16 + pinned configs) is BROKEN in-engine:
+needle probes return degenerate "!!!!!!!!!!!!!!!!" at ALL sizes (17k, 35k,
+70k -- deterministic, 4/4 FAIL). The offline bench (T=512..4096, rel<=5.9e-3)
+did not catch this. Do NOT enable mode 1. Suspect: the pinned Config list
+replaces the autotuner candidates and leaves other constexprs at defaults
+that are invalid for the engine call shapes (or BV=16 on
+chunk_gated_delta_rule_fwd_kernel_h_blockdim64 violates a blockdim64
+assumption). Mode 32 (BT=32, stock configs) isolation test pending.
+OFF path remains verified-safe (Gate 1 PASS).
+Mode 32 (BT=32, stock configs) ALSO FAILS (2/2, 68k + 19.6k) -> the chunk
+size change itself is unsafe in-engine (likely fp16 recurrent-state /
+fused-gate path semantics vs the standalone bench). Only stock BT=64 is
+safe. All VLLM_KDA_PREFILL_TUNING != 0 modes remain disabled.
