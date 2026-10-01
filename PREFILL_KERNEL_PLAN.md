@@ -379,3 +379,20 @@ Mode 32 (BT=32, stock configs) ALSO FAILS (2/2, 68k + 19.6k) -> the chunk
 size change itself is unsafe in-engine (likely fp16 recurrent-state /
 fused-gate path semantics vs the standalone bench). Only stock BT=64 is
 safe. All VLLM_KDA_PREFILL_TUNING != 0 modes remain disabled.
+
+## Post-load stall ROOT-CAUSED (py-spy, 2026-10-01 02:32)
+Capture: /data/tmp/stall_pyspy_20261001.txt. The "running but port never
+binds" stall is a startup-handshake hang after TP-worker death:
+- API server: zmq poll in vllm/v1/engine/utils.py:1160 wait_for_engine_startup
+  (launch_core_engines) -- waits FOREVER, no timeout.
+- EngineCore: multiprocessing/util.py _exit_function -> join() of its TP
+  workers (stuck in popen_fork poll) -- i.e. the engine is SHUTTING DOWN and
+  hung joining children.
+- TP workers: dead / unattachable (py-spy: "No such file or directory",
+  "Failed to find a python interpreter in the .data section").
+Mechanism: flaky early-boot worker death (the SEGV family) -> EngineCore exit
+path hangs in _exit_function join -> API server never gets startup-complete.
+Fixes (vLLM-side): (1) bounded timeout in wait_for_engine_startup that
+surfaces EngineCore-alive-but-starting >N min as an error; (2) EngineCore
+shutdown must use join(timeout) + terminate. Recovery today: systemctl
+restart glm53.service (retry loop for the flaky boot).
