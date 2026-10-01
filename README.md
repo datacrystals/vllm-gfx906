@@ -11,7 +11,7 @@ cores)** -- the "can't run big models" GPUs -- serving
 | Context @128k | 4.72x concurrency | needles green to 100k |
 | Context @512k | 1.08x single-shot | deep-prefill transient known |
 | Decode | **15.2-16.6 tok/s** | +45% via MTP + collective tuning |
-| Prefill | **318 tok/s @ 60k** | kernel work ongoing, 600+ in sights |
+| Prefill | **318 tok/s @ 60k** | union-GEMM sparse-MLA path shipped (needle-gated @ 71k) |
 | All-reduce (8-way) | **132 us** (was 456) | ACS register reprogramming |
 | KV pool | 590k tokens @256k cfg | custom mamba-state pool decoupling |
 
@@ -26,7 +26,11 @@ Engineering highlights behind the numbers:
 - **MTP speculative decoding glue** for the GLM53 draft layer (gated off
   pending a verify fix).
 - Survived: corrupt-pyc segfaults from hard resets, triton compile
-  marathons masquerading as hangs, and one very stubborn switch fabric.
+  marathons masquerading as hangs, one very stubborn switch fabric, and a
+  GPU wedge that gaslit an entire evening with degenerate `!!!!` outputs --
+  root-caused to hung DMA fences, not code (postmortem in
+  PREFILL_KERNEL_PLAN.md). Every kernel path is needle-gated before it
+  ships; exact-prompt/token-count repro is the house style.
 
 ---
 
