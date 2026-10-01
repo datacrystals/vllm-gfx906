@@ -293,3 +293,74 @@ REPRO COMMANDS:
   fixed boot:    bash /data/tmp/run_unionfix.sh 9700  # + VLLM_GLM53_PREFILL_UNION=1
   quality gate:  python3 tools/needle_probe.py 9700 85000 0.5 [maxtok] [variant]
                  (pass a fresh variant to defeat block-level prefix caching)
+
+## INCIDENT 2026-09-30 night: "the !!!! corruption"
+- Symptom: all large-prompt (60k+) completions returned degenerate
+  "!!!!!!!!!!!!!!!!" while short prompts stayed fluent. Hit EVERY config
+  including no-flag baseline. Three isolation rounds (union-only, control,
+  .bak restores) failed to clear it.
+- INTERIM THEORY (SUPERSEDED -- see the postmortem section below): the
+  morning-code restore PASS was read as implicating the perf patches. The
+  exact-prompt repro later exonerated all code; root cause was GPU/driver
+  state from the 19:25 hung-fence era.
+- RULE ADDED: every perf patch gets a needle gate on the OFF path before
+  its ON path is ever tested. "Inert by default" is a claim, not a fact.
+- STATE (at the time, superseded): production = morning code. All perf
+  work (union, KDA tuning, topk knob) quarantined in git history for
+  careful one-at-a-time revival.
+
+## Corruption incident postmortem (2026-09-30 evening) — MACHINE STATE, NOT CODE
+
+Symptom: long prompts (68-85k tokens) returned degenerate `!!!!!!!!!!!!!!!!`
+(16 bangs = max_tokens wall); short prompts stayed fluent. First seen during
+Union+KDA validation ~20:37.
+
+Timeline / evidence:
+- 19:25 — dmesg: 4x `dma_fence_wait_timeout` hung-task stacks (GPU hung),
+  410 `amdgpu queue evicted` events in 19:00-22:00. GPU trouble PREDATES the
+  first corrupted output.
+- 20:37-21:42 — all needles FAIL on several boots (union ON, union OFF,
+  restored-backup trees). Cold prefills, real token counts (68-71k).
+- 23:39 — git-restored morning code: needle PASS @ 61k.
+- 23:45+ — morning+union-patch: PASS @ 62k, 58k, 55k, 50k.
+- 00:2x — EXACT repro of the failing prompts on healthy code: variant 6
+  (prompt_tokens=70672 — identical to the FAIL) PASS; variant 7
+  (prompt_tokens=68171 — identical to the FAIL) PASS. Same triton cache,
+  same prompts, same sizes.
+
+Code audit (all suspects env-inert at default, verified byte-level):
+- patch_prefill_union.py OFF path == stock reference call + unpad fall-through.
+- ee7cde4d1c (KC-DUMP + unpad fix): capture is env-gated (VLLM_GLM53_KC_DUMP).
+- 435bc54596 (KDA tuning): _apply_kda_prefill_tuning() returns stock
+  FLA_CHUNK_SIZE when VLLM_KDA_PREFILL_TUNING unset.
+- agent-5 never edited fla/ops/chunk_delta_h.py or solve_tril.py (the
+  .bak-kdatune copies of those two were precautionary backups; its patch
+  script touched only kda/kernels.py).
+Cache audit:
+- Triton cache 521MB/5841 files; the 113 "partial" entries are benign
+  (launcher .so / autotune.json only). 716 .hsaco with normal size spread.
+  The PASS runs used the SAME cache as the FAILs -> cache not the cause.
+- venv *.pyc wiped after the incident (this box has prior corrupt-pyc history).
+
+Conclusion: outputs were corrupted by GPU/driver state left from the 19:25
+hung-fence era (queue teardown churn). Cleared by process teardown/reboot.
+Not reproducible. All perf patches exonerated.
+
+Lessons:
+1. Before bisecting code on a needle failure, check dmesg for hung-task /
+   queue-eviction in the failure window. Machine-state corruption masquerades
+   as a code regression and "restores" can look like fixes.
+2. Needle-fail evidence must be re-proed on a fresh boot before blaming code;
+   identical prompt+token-count repro is the gold standard.
+3. Boot scripts must gate on fleet_free.sh with `&&` (a `;` boot can race a
+   dying server) and carry the segfault retry loop (1-2-3-4-5).
+
+### Addendum: the wedge outlived the incident (00:30-00:55)
+The degraded GPU state did NOT clear with process teardown: it served the
+green repro runs (23:39-00:30), then killed two fresh boots (segfault, then
+workers dying after NCCL init) with `amdgpu ... Trying to push to a killed
+entity` in dmesg and rocm-smi/ps HANGING. Symptom triage for this box:
+  - boots dying after "distributed_init"/NCCL + killed-entity dmesg = GPU
+    wedge, not code -- do NOT bisect code, ipmitool chassis power reset.
+  - after ANY power reset: wipe venv *.pyc (mandatory), then boot with the
+    segfault retry loop.
