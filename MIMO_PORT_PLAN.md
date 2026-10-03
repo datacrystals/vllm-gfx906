@@ -447,3 +447,17 @@ Expected: 41.4 ms/step -> ~1-2 ms/step.
 * tools/mimo_256k_conc.py: N-concurrent 256k liveness/throughput bench.
 * KNOWN QUIRK: importing vllm._custom_ops first in a bare python process
   segfaults on this box; server import order avoids it. Not a product bug.
+
+## PERF 2026-10-03 p.m. #2: shutdown wedge -> first power reset of session
+SIGTERM of server 110072 left it stuck in the uvloop (API dead, engine core
+zombie, resource_tracker the only live child). GPU children were gone and
+KFD showed 0 VRAM for the parent, but 137 GB stayed pinned across 6 GPUs
+with 1000+ kworker/4:N+events threads in D state (kfd_process_wq teardown
+pile-up). Watched 4+ min: no reclaim. Zombie-pinned VRAM wedge ->
+sudo ipmitool chassis power reset at 13:44 UTC (pre-authorized, 1st of
+session). Box back in ~1 min. Post-reset: venv *.pyc deleted, fleet_free
+GATE found glm53.service RESPAWNED at boot on :9700 (auto-start via
+llm-fleet.target) -> systemctl --user stop + disable glm53.service, SIGTERM
+pid 2063, FLEET FREE. Note: the earlier SIGTERM hang was triggered while
+the prof_patch decode window (40 steps) was still open - profile windows
+now closed before any restart.
