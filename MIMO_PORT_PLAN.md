@@ -395,3 +395,55 @@ Per-rank 256k session: 9 full-attn layers x 1 kv-head/rank x (192+128) x 2B x
 ~4.23 GiB fp16 or ~2.1 GiB int8. VRAM: 30.8 GB used of 34.3 GB (~3.2 GB free).
 Levers: int8 KV (tools/int8_kv_kernel.py, pre-authorized), pool raise, and
 --kv-offloading-size + --disable-hybrid-kv-cache-manager for parked sessions.
+
+## PERF 2026-10-03 p.m.: GEMV hatches measured and REJECTED; profile found the
+## real decode hog (router gate bf16 GEMM) — gate fp16 fix landed.
+### GEMV A/B verdict (honest negative)
+With all four hatches ON (648f733e57 wiring) decode fell to 2.93 tok/s from
+the 12.35 baseline -- a 4x regression. Standalone micro-bench at MiMo
+TP-shard shapes (tools-pattern /tmp/gemv_micobench.py, /tmp/moe_ab_bench.py,
+/tmp/wna16_cfg_sweep.py on an idle GPU):
+* wna16 GEMV vs ops.moe_wna16_gemm CUDA kernel (M=1 topk=8):
+    TP w13 (E=256,N=512,K=4096): cuda 0.16 ms vs gemv 1.25 ms (7.9x)
+    TP w2  (E=256,N=4096,K=256): cuda 0.06 ms vs gemv 0.57 ms (9.0x)
+  Full config sweep (BN 8..256, BK 128..1024, NW 1..4, NS 1..2, SK 1..2):
+  BEST gemv still 5.73x (w13) / 7.26x (w2) slower than the CUDA kernel.
+  Root cause: BLOCK_M=4 re-reads expert weight tiles 4x for the 1-token-
+  per-expert decode routing pattern; the CUDA kernel is already well-tuned
+  for this shape. Correctness was fine (max|diff| ~1e-2 on ref ~10).
+* gemv_m vs ops.LLMM1 (fp16 M=1): lm_head 1.09x (par), qkv 3.2x slower,
+  o_proj 5.9x, gate 5.5x. LLMM1 is the better kernel at small N.
+* int4_gemv vs gptq_gemm: only covers layer-0 qkv (attention is in the CT
+  ignore list = unquantized), negligible either way.
+Conclusion: all three GLM53/GFX906 GEMV hatches default OFF in
+run_mimo_v2_6_omni.sh (env-overridable for future A/B). The kernels remain
+vendored and wired; they are simply not wins at MiMo geometry. GLM-5.3
+shapes (N=4096,K=4096 EP-shard, 36 experts) are a different regime.
+### Decode-step profile (hatches OFF, prof_patch window 1:40, rank0 trace)
+/data/tmp/mimo_prof/trace_w1_p110244.json.gz, 34 interior steps, M=1:
+  41.43 ms/step x47  Tensile bf16 GEMM Cijk_Alik_Bljk_BBS_BH_MT32x128x16
+                     -> the MoE ROUTER GATE (nn.Linear, moe_router_dtype=
+                     bfloat16) at 880 us/call. HALF the step.
+  17.43 ms/step x94  moe_wna16_gemm_kernel<__half,4,4> (experts, 185 us)
+  12.38 ms/step x98  ncclDevKernel (all-reduce)
+   2.23 ms/step x141 aten gatherTopK (router topk, bf16)
+   1.65 ms/step x50  gptq 4bit (layer-0 qkv)
+   1.01 ms/step x49  LLGemm1 (attention qkv/o at M=1)
+   0.79 ms/step x48  kernel_unified_attention
+   rest ~8 ms in 600+ tiny kernels
+  TOTAL kernel 85 ms/step (matches 81 ms/step wall at 12.35 tok/s).
+### Gate fix (landed, both trees, .bak-gate)
+model_executor/models/mimo_v2.py: MiMoV2MoE.forward routes the router gate
+through rocm_unquantized_gemm (LLMM1 M==1 path) in fp16 when
+VLLM_MIMO_GATE_FP16_GEMV=1 and hidden is fp16. bf16 weight cached as fp16
+once (exact); logits cast back to gate dtype; routing dtype flow unchanged.
+Expected: 41.4 ms/step -> ~1-2 ms/step.
+### Also
+* restart_mimo.sh hardened (port-ownership readiness poll; the old setsid
+  $! liveness check double-booted once -- 2 servers on :9700, cleaned up).
+* /tmp/trace_kernels.py: per-kernel step attribution from prof_patch traces.
+* tools/mimo_decode_instr.py: instruction-prompt decode bench (the stock
+  mimo_perf_bench.py prose prompts EOS in 1 token on this RL model).
+* tools/mimo_256k_conc.py: N-concurrent 256k liveness/throughput bench.
+* KNOWN QUIRK: importing vllm._custom_ops first in a bare python process
+  segfaults on this box; server import order avoids it. Not a product bug.

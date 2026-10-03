@@ -183,6 +183,30 @@ class MiMoV2MoE(nn.Module):
             router_logits_dtype=self.gate_dtype,
         )
 
+    def _gate_fp16_gemv(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        """VLLM_MIMO_GATE_FP16_GEMV: skinny fp16 GEMM for the router gate.
+
+        The gate is a plain nn.Linear in bf16 (moe_router_dtype=bfloat16), so
+        F.linear dispatches to a Tensile bf16 GEMM measured at ~880 us/call
+        at M=1 (47 calls/step = 41 ms of the ~81 ms decode step; decode-step
+        profile in /data/tmp/mimo_prof). This routes identical math through
+        rocm_unquantized_gemm's skinny path (LLMM1 at M==1, ~20 us).
+        The bf16 checkpoint weight casts to fp16 exactly (mantissa fits);
+        accumulation stays fp32; logits are cast back to gate dtype so the
+        routing dtype flow is unchanged. EPLB is not enabled on this
+        deployment; _gate_w_fp16 must be invalidated if gate weights are
+        ever swapped in place.
+        """
+        from vllm.model_executor.layers.utils import rocm_unquantized_gemm
+        w = self.__dict__.get("_gate_w_fp16")
+        if w is None:
+            w = self.gate.weight.to(torch.float16)
+            self._gate_w_fp16 = w
+        out = rocm_unquantized_gemm(self.gate, hidden_states, w)
+        if self.gate_dtype is not None and out.dtype != self.gate_dtype:
+            out = out.to(self.gate_dtype)
+        return out
+
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         assert hidden_states.dim() <= 2, "MiMoV2MoE only supports 1D or 2D inputs"
         is_input_1d = hidden_states.dim() == 1
@@ -192,11 +216,14 @@ class MiMoV2MoE(nn.Module):
         if self.is_sequence_parallel:
             hidden_states = sequence_parallel_chunk(hidden_states)
 
-        if self.gate_dtype is not None:
+        if (__import__("os").environ.get("VLLM_MIMO_GATE_FP16_GEMV") == "1"
+                and hidden_states.dtype == torch.float16):
+            router_logits = self._gate_fp16_gemv(hidden_states)
+        elif self.gate_dtype is not None:
             gate_input = hidden_states.to(self.gate_dtype)
+            router_logits = self.gate(gate_input)
         else:
-            gate_input = hidden_states
-        router_logits = self.gate(gate_input)
+            router_logits = self.gate(hidden_states)
         final_hidden_states = self.experts(
             hidden_states=hidden_states, router_logits=router_logits
         )
@@ -824,3 +851,7 @@ if __import__("os").environ.get("VLLM_GLM53_WNA16_GEMV") == "1":
     from vllm.gfx906_ext import glm53_wna16_gemv as _glm53_w16_mod
     _glm53_w16_mod.install_glm53_wna16_gemv()
 # --- end gfx906 decode-GEMV anchor ---
+if __import__("os").environ.get("VLLM_GFX906_PROF_DIR"):
+    from vllm.gfx906_ext import prof_patch as _prof_patch_mod
+    _prof_patch_mod.install()
+
