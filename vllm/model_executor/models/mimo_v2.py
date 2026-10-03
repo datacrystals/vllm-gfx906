@@ -3,6 +3,8 @@
 from collections.abc import Iterable
 from itertools import islice
 
+import os
+
 import torch
 from torch import nn
 
@@ -745,19 +747,23 @@ class MiMoV2Model(nn.Module):
                 weight_loader(param, loaded_weight)
                 loaded_params.add(name)
 
-        # GLM53-MIMO-AUDIT: post-load checksums for offline comparison
-        try:
-            import torch as _t
-            keys = [k for k in params_dict if any(s in k for s in (
-                "layers.0.self_attn.qkv_proj", "layers.0.self_attn.o_proj",
-                "layers.1.mlp.experts.0.", "layers.1.mlp.experts.1.",
-                "embed_tokens", "lm_head"))]
-            for k in sorted(keys)[:24]:
-                p = params_dict[k]
-                d = p.data.float()
-                print(f"MIMO-AUDIT {k} sum={d.sum().item():.4e} abs={d.abs().sum().item():.4e} n={d.numel()}", flush=True)
-        except Exception as e:
-            print("MIMO-AUDIT-ERR", e, flush=True)
+        # GLM53-MIMO-AUDIT: post-load checksums for offline comparison.
+        # Gated: these .float() temp copies (embed_tokens = 312 MB) x 8 workers
+        # land exactly at the post-load transition where the engine parent has
+        # been dying silently. Set VLLM_MIMO_AUDIT=1 to run them on demand.
+        if os.environ.get("VLLM_MIMO_AUDIT") == "1":
+            try:
+                import torch as _t
+                keys = [k for k in params_dict if any(s in k for s in (
+                    "layers.0.self_attn.qkv_proj", "layers.0.self_attn.o_proj",
+                    "layers.1.mlp.experts.0.", "layers.1.mlp.experts.1.",
+                    "embed_tokens", "lm_head"))]
+                for k in sorted(keys)[:24]:
+                    p = params_dict[k]
+                    d = p.data.float()
+                    print(f"MIMO-AUDIT {k} sum={d.sum().item():.4e} abs={d.abs().sum().item():.4e} n={d.numel()}", flush=True)
+            except Exception as e:
+                print("MIMO-AUDIT-ERR", e, flush=True)
 
         return loaded_params
 
