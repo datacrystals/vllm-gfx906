@@ -69,3 +69,24 @@ FIX SCOPE (final): kernel-level. Ranked suspects unchanged:
 VERIFICATION BAR (unchanged): hammer 8/8 -> 1/1 distinct on the same boot
 config, warm==cold byte-identical in cacheab, multi-turn + behavior probes
 green, needle 24k + France probe + thinkstrip pass.
+
+## TWO BUGS, NOT ONE (2026-10-03 noprefix suite verdict)
+Frozen-history probe (notes-state, 2 runs x 5 turns):
+  cache ON  baseline: 4 of 5 turns DIVERGED (warm != cold)
+  cache OFF now:      0 of 5 diverged -- ALL turns byte-IDENTICAL
+  VERDICT line: "prefix cache consistent (turns deterministic)"
+MEANING: on deterministic trajectories the cache is the SOLE divergence
+source -- a genuine KV-correctness bug (SWA block accounting serving
+subtly-wrong cached KV), not merely noise amplification.
+Simultaneously the hammer shows 8/8 distinct streams cache-OFF on
+near-tie-heavy prompts (short_explain) -> separate compute nondeterminism.
+FINAL DECOMPOSITION:
+  Bug A: prefix-cache KV mismatch -> multi-turn context rot (the user's
+    "doesn't know what it is doing"). Fix in v1/core SWA block accounting.
+    Verified measurable: 4/5 -> 0/5 diverging turns by disabling cache.
+  Bug B: kernel compute nondeterminism -> stray dots + wobble on
+    near-tie-heavy generations (hammer 8/8 cache-off). Kernel-level
+    (atomics/split-K/reduction); harder fix.
+FIX ORDER: Bug A first (clear target, big multi-turn win), then Bug B.
+If Bug B resists, documented mitigation: temperature slightly >0 makes
+near-tie flips intentional sampling rather than silent corruption.
