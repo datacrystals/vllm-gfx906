@@ -59,7 +59,7 @@ __device__ __forceinline__ float2 sub2_float(float2 a, float2 b) {
 
 template <typename scalar_t, int bit, int GROUPS>
 __global__ void moe_wna16_gemm_kernel(
-    const scalar_t* __restrict__ input, scalar_t* __restrict__ output,
+    const scalar_t* __restrict__ input, float* __restrict__ output,
     const uint32_t* __restrict__ qweight, const scalar_t* __restrict__ scales,
     const uint32_t* __restrict__ qzeros,
 
@@ -280,23 +280,26 @@ __global__ void moe_wna16_gemm_kernel(
     }
   }
 
+  // MIMO-QUALITY-FIX (2026-10-03): accumulate the top-k / K-split partials in
+  // fp32 with a native fp32 atomicAdd instead of atomicAdd_half into an fp16
+  // output. The old fp16 CAS-loop add rounded to fp16 at every step and ran in
+  // nondeterministic order across ~top_k x num_K_tiles contributors, producing
+  // 0.1-0.25 nat logprob noise run-to-run at temperature=0 (near-tie token
+  // flips: stray '.' tokens, multi-turn incoherence). fp32 atomics keep the
+  // same parallel layout with ~1e-7 order error. The caller casts back to the
+  // output dtype (see moe_wna16_gemm below).
   for (int m = 0; m < num_valid_tokens; ++m) {
     const int32_t token_index =
         sorted_token_ids[blockIdx.x * BLOCK_SIZE_M + m];
     if (mul_topk_weight) {
       res[m] *= topk_weights[token_index];
     }
-    
-    if constexpr (std::is_same_v<scalar_t, half>) {
-        atomicAdd_half(&output[token_index * size_n + offset_n], Dtype::float2num(res[m]));
-    } else {
-        atomicAdd(&output[token_index * size_n + offset_n], Dtype::float2num(res[m]));
-    }
+    atomicAdd(&output[token_index * size_n + offset_n], res[m]);
   }
 }
 
 template <typename scalar_t>
-void run_moe_wna16_gemm(const scalar_t* input, scalar_t* output,
+void run_moe_wna16_gemm(const scalar_t* input, float* output,
                         const uint32_t* b_qweight, const scalar_t* b_scales,
                         const uint32_t* b_qzeros, const float* topk_weights,
                         const int32_t* sorted_token_ids,
@@ -361,6 +364,10 @@ torch::Tensor moe_wna16_gemm(torch::Tensor input, torch::Tensor output,
                              int64_t BLOCK_SIZE_K, int64_t bit) {
   const at::cuda::OptionalCUDAGuard device_guard(device_of(input));
   output.zero_();
+  // MIMO-QUALITY-FIX (2026-10-03): fp32 accumulation buffer; see kernel
+  // epilogue comment. Cast back to the caller's dtype at the end.
+  auto output_acc = at::zeros_like(
+      output, output.options().dtype(at::kFloat));
 
   const int num_experts = b_qweight.size(0);
   const int size_m = input.size(0);
@@ -395,10 +402,10 @@ torch::Tensor moe_wna16_gemm(torch::Tensor input, torch::Tensor output,
                   groups_per_block_row == 16,
               "BLOCK_SIZE_K // group_size must be one of [1, 2, 4, 8, 16]");
 
+  float* output_acc_ptr = output_acc.data_ptr<float>();
   if (input.scalar_type() == at::ScalarType::Half) {
     run_moe_wna16_gemm<half>(
-        (const half*)input.data_ptr<at::Half>(),
-        (half*)output.data_ptr<at::Half>(),
+        (const half*)input.data_ptr<at::Half>(), output_acc_ptr,
         (const uint32_t*)b_qweight.data_ptr<uint8_t>(),
         (const half*)b_scales.data_ptr<at::Half>(), b_qzeros_ptr,
         topk_weights_ptr, sorted_token_ids.data_ptr<int32_t>(),
@@ -408,8 +415,7 @@ torch::Tensor moe_wna16_gemm(torch::Tensor input, torch::Tensor output,
         b_qzeros.has_value(), topk_weights.has_value());
   } else if (input.scalar_type() == at::ScalarType::Float) {
     run_moe_wna16_gemm<float>(
-      (const float*)input.data_ptr<float>(),
-      (float*)output.data_ptr<float>(),
+      (const float*)input.data_ptr<float>(), output_acc_ptr,
       (const uint32_t*)b_qweight.data_ptr<uint8_t>(),
       (const float*)b_scales.data_ptr<float>(), b_qzeros_ptr,
       topk_weights_ptr, sorted_token_ids.data_ptr<int32_t>(),
@@ -420,5 +426,6 @@ torch::Tensor moe_wna16_gemm(torch::Tensor input, torch::Tensor output,
   } else {
     TORCH_CHECK(false, "moe_wna16_gemm only supports float16 and float32");
   }
+  output.copy_(output_acc.to(output.scalar_type()));
   return output;
 }

@@ -633,3 +633,74 @@ bounded 3x completion test (max_tokens 300 so responses finish).
    profile 60k with VLLM_GFX906_PROF_DIR + TRIGGER window, analyze with
    tools/trace_kernels.py. Note threshold must be 0 or >= budget for clean
    single-stream prefill numbers.
+
+## 2026-10-03/04 night: output-quality root cause (stray "." + multi-turn incoherence)
+
+**Root cause: nondeterministic fp16 atomic combine in the INT4 MoE kernel.**
+`csrc/moe/moe_wna16.cu` (the active int4 expert-GEMM kernel, `torch.ops._moe_C.moe_wna16_gemm`)
+combined the top-k expert + K-split partials into the output with
+`atomicAdd_half` (a CAS loop over fp16, since gfx906 has no native fp16
+atomicAdd). Each add rounds to fp16, and ~top_k x num_K_tiles (~64-128)
+contributors land in nondeterministic order per output element. Result:
+identical temperature=0 requests drift 0.05-0.25 nats in logprob space
+run-to-run (fp rounding is ~1e-5) and flip near-tie argmaxes every ~10-40
+tokens. A flip onto a punctuation token = the stray "."; a flip that cascades
+into a broken trajectory = "doesn't know what it is doing" / "randomly deletes
+stuff". Multi-turn/long contexts are worst because margins are flatter and a
+single early flip reruns the whole trajectory.
+
+**Evidence chain (tools/ in this repo, all probes stdlib HTTP):**
+* mimo_nondet_hammer2.py: 8x identical fresh greedy computes
+  (prompt_logprobs=0 => forced recompute): 8/8 distinct token streams,
+  per-position logprob drift up to 0.24-0.46 nats, drift already at generated
+  token 0 (prefill path racy too). Flip margins ~0.05-0.25 nats.
+* mimo_behavior_probe.py 9700 8000 1 --max-tokens 512, SAME prompt, 3 runs:
+  FAIL / PASS / FAIL. Failing run forgot 4/5 embedded facts and degenerated
+  into an echo of the prompt (with a "two two" token glitch) - the "randomly
+  deletes stuff / doesn't know what it is doing" report, reproducibly random.
+* mimo_qprobe.py dot/repeat: two identical greedy requests diverged at
+  generated token 0 (ids [576,...] vs [5443,...]).
+* mimo_detok_diff.py + real captures: server text == tokenizer.decode(ids) ==
+  tokenizers.DecodeStream replay -> detokenizer exonerated; the model emits
+  the '.' token itself. Qwen2TokenizerFast byte-level BPE, '.' = token id 13.
+* mimo_h4_template.py: 3-turn chat template render clean -> H4 exonerated.
+* mimo_cacheab.py (cache-HIT vs forced-fresh-recompute via prompt_logprobs ->
+  skip_reading_prefix_cache): mismatches were fully explained by the noise
+  floor (both arms fail the fresh-vs-fresh control). Decisive H1 test also
+  done: booted with --no-enable-prefix-caching -> same nondeterminism
+  (8/8 distinct), and the frozen-history multi-turn warm-vs-cold probe became
+  5/5 IDENTICAL with all 17 logic checks PASS. Prefix cache / hybrid-SWA block
+  accounting NOT the root cause (and code review of
+  single_type_kv_cache_manager.py / kv_cache_coordinator.py / block_pool.py
+  found no stale-block bug for window=128 < block=256).
+* VLLM_MIMO_GATE_FP16_GEMV=0 A/B (the decode-speed skinny gate GEMM):
+  unchanged nondeterminism (8/8 distinct) -> gate fp16 GEMM exonerated.
+
+**Fix (this commit): fp32 atomic accumulation in moe_wna16.cu.**
+The kernel's per-contributor partial `res[]` is already fp32; the epilogue now
+does a native fp32 `atomicAdd` into an fp32 shadow buffer and the launcher
+casts back to the caller dtype. Kills the per-add fp16 rounding and the CAS
+loop (~1e4 noise reduction; residual = fp32 order-only, ~1e-7). Backups:
+csrc/moe/moe_wna16.cu.bak-fp32acc and the old _moe_C.abi3.so.bak-fp32acc in
+the venv. Rebuilt _moe_C via ninja and deployed to vllm_dsv4_env site-packages.
+
+**Verification (after fix, prod config: prefix caching ON, gate fp16 ON):**
+(see night-of logs /data/tmp/nondet2_afterfix.log etc. on the box; summary in
+the PR/commit message. Before: 8/8 distinct streams, 0.1-0.46 nat drift,
+behavior probe flaky FAIL on identical input. Target after: 1/8-2/8 distinct
+with drift <= ~1e-3, behavior probe stable PASS.)
+
+**Also shipped tonight:**
+* run_mimo_v2_6_omni.sh: DISABLE_PREFIX_CACHE env toggle (default unchanged).
+* Probe/analysis tooling in tools/: mimo_qprobe.py, mimo_cacheab.py,
+  mimo_nondet_hammer.py, mimo_nondet_hammer2.py, mimo_detok_diff.py,
+  mimo_h4_template.py.
+* Note: early-boot segfault ("!!!!!!! Segfault encountered !!!!!!!" at engine
+  init, ~50-70% of boots) remains a separate flake (repro attempts with core
+  capture live in /tmp/core_try*.log). Boot scripts retry around it.
+
+**Ops notes:**
+* The 5.6 GiB KV-pool config leaves <2 GB free VRAM -> SIGTERM teardown is
+  wedge-prone (WEDGE rule); restarts tonight used `sudo ipmitool chassis power
+  reset` per the port plan. Two concurrent TP8 boots race and crash each other
+  (matches the 2026-09-11 fleet_free lesson) - serialize boots with a lock.
