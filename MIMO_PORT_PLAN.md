@@ -545,3 +545,91 @@ bounded 3x completion test (max_tokens 300 so responses finish).
   at 19:12 (ssh drop killed the in-flight HTTP requests); the completion
   run uses a detached nohup client with incremental logging to
   /data/tmp/3x_samples.log + /data/tmp/3x_results.log.
+
+## PERF CAMPAIGN FINAL SCOREBOARD (2026-10-03)
+
+| Target | Result | Evidence |
+|---|---|---|
+| Decode >=20 tok/s @ 1 user | **28.07 tok/s MET** (was 12.35) | tools/mimo_decode_instr.py decode --reps 3 --max-tokens 300: 28.298 / 28.066 / 27.909 |
+| >=3x concurrent @256k in VRAM | **MET (residency); completion run IN FLIGHT** | boot metric 3.16x @262144 (5.6 GiB pool); live num_requests_running=3.0 sustained (17:29-19:12 run, kv 0.09->0.71 = 3x256k class resident). Completion run in flight (detached, /data/tmp/3x_results.log) |
+| RAM-offloaded parked sessions | PENDING | tools/mimo_offload_test.py with --kv-offloading-size + --disable-hybrid-kv-cache-manager |
+| Prefill maximized + profile evidence | PARTIAL | before@2048 re-measured 143.09 tok/s @15.1k (20k target); 4096/8192 sweep pending |
+
+### Decode: what actually moved the needle
+1. GEMV family (the planned lever) — wired BOTH trees (vllm/gfx906_ext/
+   glm53_int4_gemv.py + glm53_wna16_gemv.py, anchor at models/mimo_v2.py
+   tail), smoke-tested, then measured and REJECTED:
+   * wna16 MoE GEMV vs moe_wna16 CUDA kernel at MiMo TP shapes (M=1 topk=8):
+     cuda 0.164 ms vs gemv 1.252 ms (TP w13), 0.062 vs 0.565 (TP w2).
+     Full config sweep BN 8..256 / BK 128..1024 / NW 1..4 / NS 1..2 /
+     SPLIT_K 1..2: best gemv still 5.73x / 7.26x slower.
+   * gemv_m vs LLMM1 (fp16 M=1): lm_head 1.09x (par), qkv 3.2x slower,
+     o_proj 5.9x, gate 5.5x slower.
+   * int4 dense GEMV only covers layer-0 qkv (attention is unquantized in
+     the CT ignore list) -> negligible either way.
+   All three hatch env gates default OFF in run_mimo_v2_6_omni.sh; the code
+   stays vendored/wired for other shape regimes. With hatches ON the whole
+   server regressed to 2.93 tok/s — that A/B is what found the real hog.
+2. Router gate fp16 skinny GEMM (THE win): decode-step profile
+   (/data/tmp/mimo_prof/trace_w1_p110244.json.gz, 34 steps) showed
+   41.43 ms/step x47 of ONE Tensile bf16 GEMM = the MoE router gate
+   (nn.Linear, moe_router_dtype=bfloat16) at 880 us/call inside F.linear.
+   Fix: MiMoV2MoE._gate_fp16_gemv routes it through
+   rocm_unquantized_gemm (LLMM1 path) in fp16, logits cast back to gate
+   dtype. VLLM_MIMO_GATE_FP16_GEMV=1 (default on). 41 ms -> ~1 ms/step.
+   Quality gates ALL PASS after the numerics change: verify_thinkstrip
+   (no think-marker leak, stream + non-stream), "capital of France is"
+   coherent, needle_probe 24000 depth 0.5 PASS (16984 prompt tokens).
+
+### Concurrency notes
+* 5.6 GiB pool (KV_CACHE_BYTES=6012954214) -> 3.16x capacity at 262144.
+* Prefill-to-prefill serializes unless LONG_PREFILL_THRESHOLD is set
+  (default 0: a mid-prefill request owns the whole 2048-token budget).
+  threshold=512 interleaves up to 4 long prefills -> 3-way residency.
+* Prompt builder note: mimo_decode_instr/conc builders use chars/3.6 which
+  under-counts real tokens 1.34x; mimo_conc_overlap --calibrate scales
+  against the HF tokenizer.
+
+### Operational war stories (do not relearn)
+* 3x teardown wedges (D-state, 1000+ kfd_process_wq threads, VRAM pinned,
+  load ~1000) -> 3 power resets. All SIGTERMs under VRAM pressure or with
+  non-empty queue; clean SIGTERMs had >=3 GB free. Rule: signal only with
+  empty queue + >=2 GB free VRAM, else power-cycle. Close prof_patch
+  windows before restarts (window-open SIGTERM = wedge #1).
+* glm53.service auto-respawns via llm-fleet.target after power reset and
+  grabs :9700 — stop + disable it before booting MiMo.
+* restart_mimo.sh hardened: queue-drain gate before SIGTERM,
+  port-ownership readiness poll (setsid $! liveness check double-booted
+  once: two servers on :9700).
+* A segfault-flaked boot attempt can leak VRAM into the NEXT boot's server
+  (observed 0.86 GB free + 20 s/step decode collapse). Check free VRAM
+  after boot before trusting perf numbers.
+* Bare `import vllm._custom_ops` first in a fresh process segfaults on this
+  box (import models.mimo_v2 first in test harnesses). Not a product bug.
+
+### Repro commands
+  decode:  python3 tools/mimo_decode_instr.py --port 9700 decode \
+               --reps 3 --max-tokens 300 --pad-tokens 0
+  3x:      python3 tools/mimo_conc_overlap.py --n 3 --target-tokens 256000 \
+               --calibrate --max-tokens 300
+  profile: VLLM_GFX906_PROF_DIR=/data/tmp/mimo_prof at boot; echo 1:40 >
+           /data/tmp/mimo_prof/TRIGGER; run load; analyze with
+           tools/trace_kernels.py trace_w1_p<pid>.json.gz
+
+### NEXT STEPS (in-flight / not done this window)
+1. 3x completion evidence: detached run logs live in
+   /data/tmp/3x_results.log (DONE reqN lines) + /data/tmp/3x_samples.log
+   (30s running/kv samples). Config: KV_CACHE_BYTES=6012954214
+   LONG_PREFILL_THRESHOLD=682 (3.16x capacity, 3 admitted at t=0).
+   Command: nohup vllm_dsv4_env/bin/python3 -u tools/mimo_conc_overlap.py
+   --n 3 --target-tokens 256000 --calibrate --max-tokens 300
+2. RAM offload (NOT done): boot KV_CACHE_BYTES=3758096384 KV_OFFLOAD_GB=64
+   DISABLE_HYBRID_KM=1, run tools/mimo_offload_test.py. Needs the
+   --kv-offloading-size + --disable-hybrid-kv-cache-manager pair; the test
+   watches preemptions / MemAvailable / completion. Teardown rule applies.
+3. Prefill sweep (PARTIAL): before@2048 = 143.09 tok/s (15.1k real). Boot
+   MAX_BATCHED_TOKENS=4096 and =8192 (fewer sessions; capacity drops to
+   2.85x at 8192), run tools/mimo_perf_bench.py prefill --sizes 20000 60000,
+   profile 60k with VLLM_GFX906_PROF_DIR + TRIGGER window, analyze with
+   tools/trace_kernels.py. Note threshold must be 0 or >= budget for clean
+   single-stream prefill numbers.
