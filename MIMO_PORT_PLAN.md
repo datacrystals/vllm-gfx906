@@ -503,3 +503,18 @@ so the run is being cut and re-run clean with bounded max_tokens so the
 three responses COMPLETE (the acceptance wording).
 Also wired: --long-prefill-token-threshold passthrough (LONG_PREFILL_THRESHOLD)
 so long prefills can interleave (default 0 serializes them).
+
+## WEDGE #3 (2026-10-03 17:06) + teardown rule learned
+SIGTERM on an EMPTY queue still deadlocked teardown (state=D, 1031 D-state
+kfd_process_wq threads, 134 GB pinned). Third power reset of session.
+Pattern across all 3 wedges: teardown dies when the process is under VRAM
+pressure at signal time (2x 256k KV resident, or the 5.6 GiB-pool server at
+33.48/34.34 GB used = 0.86 GB free). Clean SIGTERMs (12:20, 13:10) had
+~3.2 GB free. Teardown rule going forward: signal only with >=2 GB free
+VRAM and empty queue; else power-cycle instead of fighting a D-state.
+The 5.6 GiB pool boot leaves only ~0.86 GB free by construction
+(weights ~25.3 + pool 5.6 + graphs/act ~2.6) -> for the remaining boots
+use 5.2 GiB (3x fits: 3x1.77=5.31... actually 3x255k sessions = 3x1.74 GiB
+= 5.22 GiB, tight) or accept power-cycle as the restart method.
+Current boot (post-reset-3): 5.6 GiB + LONG_PREFILL_THRESHOLD=512 for the
+bounded 3x completion test (max_tokens 300 so responses finish).
