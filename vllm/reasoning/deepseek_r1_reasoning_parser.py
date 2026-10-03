@@ -64,13 +64,20 @@ class DeepSeekR1ReasoningParser(BaseThinkingReasoningParser):
             content = None
         return text[:first], content, True
 
+    def _strip_start(self, text: str) -> str:
+        """Drop one leading start token (the base class partitions it away in
+        extract_reasoning; this override must do the same or "<think>" leaks
+        into reasoning_content)."""
+        return text[len(self.start_token):] if text.startswith(
+            self.start_token) else text
+
     def extract_reasoning(self, model_output, request):
         # Non-streaming path: same run-aware split instead of partition().
         reasoning, content, has_boundary = self._split_reasoning(
             model_output, final=True)
         if not has_boundary:
-            return model_output, None
-        return reasoning, content or None
+            return self._strip_start(model_output), None
+        return self._strip_start(reasoning), content or None
 
     def extract_reasoning_streaming(
         self,
@@ -94,6 +101,30 @@ class DeepSeekR1ReasoningParser(BaseThinkingReasoningParser):
         # single boundary so extras never leak into content.
         end = self.end_token
 
+        # Strip one leading start token from the accumulated stream head.
+        # previous_text is a prefix of current_text, so when the start token
+        # is present it is present in both (possibly split across deltas:
+        # "<th" + "ink>..."); slicing both at the same offset keeps the
+        # prefix invariant and drops the marker exactly once.
+        start = self.start_token
+        flush_head = ""
+        if current_text.startswith(start):
+            # Complete marker at head: drop it from every view at the same
+            # offset (previous may still be a strict prefix when the marker
+            # split across deltas: "<th" + "ink>...").
+            off = len(start)
+            previous_text = previous_text[off:]
+            current_text = current_text[off:]
+            delta_text = current_text[len(previous_text):]
+        elif start.startswith(current_text):
+            # Accumulated text is a strict prefix of the marker: hold it
+            # back -- it may complete in a later delta ("..." + "<th" + "ink>").
+            return None
+        elif previous_text and start.startswith(previous_text):
+            # A held-back marker prefix diverged ("<th" + "inkX"): those
+            # chars are real reasoning and were never emitted -- flush them.
+            flush_head = previous_text
+
         prev_reasoning, prev_content, prev_boundary = self._split_reasoning(
             previous_text)
         cur_reasoning, cur_content, cur_boundary = self._split_reasoning(
@@ -114,7 +145,7 @@ class DeepSeekR1ReasoningParser(BaseThinkingReasoningParser):
                     overlap = k
                     break
             reasoning_so_far = len(previous_text) - overlap
-            new_reasoning = cur_reasoning[reasoning_so_far:]
+            new_reasoning = flush_head + cur_reasoning[reasoning_so_far:]
             return DeltaMessage(
                 reasoning=new_reasoning or None,
                 content=cur_content or None,
@@ -128,4 +159,4 @@ class DeepSeekR1ReasoningParser(BaseThinkingReasoningParser):
             if tail.endswith(end[:k]):
                 emit = emit[: len(emit) - k] if k <= len(emit) else ""
                 break
-        return DeltaMessage(reasoning=emit or None)
+        return DeltaMessage(reasoning=(flush_head + emit) or None)
