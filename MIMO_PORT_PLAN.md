@@ -461,3 +461,25 @@ llm-fleet.target) -> systemctl --user stop + disable glm53.service, SIGTERM
 pid 2063, FLEET FREE. Note: the earlier SIGTERM hang was triggered while
 the prof_patch decode window (40 steps) was still open - profile windows
 now closed before any restart.
+
+## DECODE TARGET MET: 28.07 tok/s (was 12.35 baseline, target 20) — 2026-10-03
+Router-gate fp16 fix measured: decode 28.066 tok/s median of 3 reps
+(28.298/28.066/27.909, 300-token essays, T=0, tools/mimo_decode_instr.py
+decode --reps 3 --max-tokens 300 --pad-tokens 0). 2.27x vs the 12.35
+untuned baseline. Mechanism: the profile showed 41.4 ms/step of the 81 ms
+step was ONE Tensile bf16 GEMM (router gate nn.Linear at 880 us/call x47);
+routing it through rocm_unquantized_gemm LLMM1 in fp16 (VLLM_MIMO_GATE_FP16_GEMV=1)
+cut that to ~1 ms/step.
+
+Quality gates after the numerics change (bf16->fp16 gate matmul) ALL PASS:
+* /data/vllm-gfx906-dsv4/tools/verify_thinkstrip.py: PASS (reasoning first
+  bytes [84,104,101,...] = "The capi...", no think-start marker; both
+  streaming and non-streaming).
+* "The capital of France is" completion: coherent ("Paris. It is located
+  in the north-central part of the country...").
+* tools/needle_probe.py 24000 tokens depth 0.5: PASS (16984 prompt tokens).
+Reproduce:
+  python3 tools/mimo_decode_instr.py --port 9700 decode --reps 3 \\
+      --max-tokens 300 --pad-tokens 0
+Note: profile capture windows must be closed before restarts (a 40-step
+window wedged one shutdown -> power reset).
