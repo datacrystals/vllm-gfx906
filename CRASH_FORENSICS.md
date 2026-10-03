@@ -41,7 +41,14 @@ fine (486s), then WorkerProc "BrokenPipeError" — engine parent already dead
 at the worker-ready handshake. The post-load transition is where the
 GLM53-MIMO-AUDIT checksum block ran (24 tensors x .float() temps x 8 workers
 = multi-GB spike at exactly that moment). Gated behind VLLM_MIMO_AUDIT=1 in
-commit b0f29e91fc. Boot-death rate after gating: TBD (watch next boots).
+commit b0f29e91fc.
+NEGATIVE RESULT (2026-10-03 21:32 boot, audit OFF): the early boot death
+PERSISTS with the audit code gated off -- died before weight loading
+(0 safetensors lines, same _start/Py_BytesMain stack). The audit-spam
+theory is weakened: it was a stressor at the post-load transition but is
+NOT the sole trigger. The ~50% early-boot death has another cause (suspects:
+TP8 worker spawn race, ROCm init under the KCL-tainted driver, or the
+custom compilation-config path). Retry loop remains the mitigation.
 
 ## Mode 3: "crashes" that were not crashes
 19:53 event = graceful SIGTERM + restart by an orphaned scheduled chain from
