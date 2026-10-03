@@ -90,3 +90,20 @@ FINAL DECOMPOSITION:
 FIX ORDER: Bug A first (clear target, big multi-turn win), then Bug B.
 If Bug B resists, documented mitigation: temperature slightly >0 makes
 near-tie flips intentional sampling rather than silent corruption.
+
+## H3 VERDICT (gate0 run): gate GEMM EXONERATED, Bug B is deeper
+Boot: cache OFF + VLLM_MIMO_GATE_FP16_GEMV=0 (both suspects disabled):
+  # distinct streams: 8 of 8
+  global max|dlogprob| on shared prefixes = 0.239
+The fp16 skinny gate GEMM is NOT the nondeterminism source -- the 28.07
+tok/s decode fix is SAFE. Bug B is in the MoE scatter/gather atomics
+(256-expert grouped GEMM), attention reductions, or NCCL ordering.
+KEY DETAIL: run6 top-3 shows an EXACT float tie (-0.7732484340667725 for
+both ' is' and ' cannot'). INT4 quantization creates logit plateaus where
+argmax between tied tokens is decided by reduction order -> the stray '.'
+mechanism. run5 diverged at token 0 with zero shared-prefix drift (the
+first forward pass differs run to run).
+FIX ROUTING (final): Bug A = SWA prefix-cache block accounting (clear
+target). Bug B = MoE kernel determinism (rank-1 suspect: scatter_add
+atomics) or, if unfixable at acceptable cost, the documented mitigation
+(small temperature makes tied-token flips intentional sampling).
