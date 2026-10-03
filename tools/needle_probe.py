@@ -44,7 +44,7 @@ at = int(n_reps * depth)
 parts = [filler * at, needle, filler * (n_reps - at), q]
 prompt = "".join(parts)
 
-body = json.dumps({"model": "glm-5.3-flash", "prompt": prompt,
+body = json.dumps({"model": __import__("os").environ.get("NEEDLE_MODEL", "glm-5.3-flash"), "prompt": prompt,
                    "max_tokens": maxtok, "temperature": 0}).encode()
 req = urllib.request.Request(
     f"http://127.0.0.1:{port}/v1/completions", data=body,

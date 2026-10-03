@@ -50,8 +50,8 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-_PIXEL_MEAN = [123.675, 116.28, 103.53]
-_PIXEL_STD = [58.395, 57.12, 57.375]
+_PIXEL_MEAN = [122.77, 116.75, 104.09]
+_PIXEL_STD = [68.50, 66.61, 70.32]
 _mean_std_cache: dict[str, tuple[torch.Tensor, torch.Tensor]] = {}
 
 

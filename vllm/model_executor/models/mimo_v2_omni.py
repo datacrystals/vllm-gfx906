@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 import math
+import os
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from functools import partial
 from typing import Any
@@ -69,6 +70,49 @@ from .qwen2_5_vl import (
 )
 from .qwen2_vl import _create_qwen2vl_field_factory
 from .utils import AutoWeightsLoader, IntermediateTensors, WeightsMapper, maybe_prefix
+
+# ---------------------------------------------------------------------------
+# Env-gated vision splice debug dump (VLLM_VIS_DUMP=<path>).
+# Stashes (a) the vision tower merged output, (b) the embed_multimodal()
+# return, (c) the inputs_embeds rows at placeholder positions, from the first
+# small multimodal forward, then torch.save()s them once (rank 0 only).
+# ---------------------------------------------------------------------------
+_VIS_DUMP_PATH = os.environ.get("VLLM_VIS_DUMP") or ""
+_VIS_DUMP_DONE = False
+_VIS_DUMP_STASH: dict[str, Any] = {}
+
+
+def _vis_dump_stash(**kv: Any) -> None:
+    if not _VIS_DUMP_PATH or _VIS_DUMP_DONE:
+        return
+    _VIS_DUMP_STASH.update(kv)
+
+
+def _vis_dump_try() -> None:
+    global _VIS_DUMP_DONE
+    if not _VIS_DUMP_PATH or _VIS_DUMP_DONE or not _VIS_DUMP_STASH:
+        return
+    if os.environ.get("LOCAL_RANK", "0") != "0":
+        _VIS_DUMP_DONE = True
+        return
+    if os.path.exists(_VIS_DUMP_PATH):
+        _VIS_DUMP_DONE = True
+        return
+    num_tokens = int(_VIS_DUMP_STASH.get("num_tokens") or 0)
+    if num_tokens == 0 or num_tokens > 4096:
+        return
+    if "vision_merged" not in _VIS_DUMP_STASH:
+        return
+    try:
+        tmp = f"{_VIS_DUMP_PATH}.tmp{os.getpid()}"
+        torch.save(dict(_VIS_DUMP_STASH), tmp)
+        os.replace(tmp, _VIS_DUMP_PATH)
+        _VIS_DUMP_DONE = True
+        print(f"[VLLM_VIS_DUMP] wrote {sorted(_VIS_DUMP_STASH)} -> {_VIS_DUMP_PATH}",
+              flush=True)
+    except Exception as e:  # debug path must never break serving
+        print(f"[VLLM_VIS_DUMP] save failed: {e}", flush=True)
+
 
 
 class MiMoVisionMLP(Qwen2_5_VisionMLP):
@@ -194,7 +238,7 @@ class MiMoVisionAttention(nn.Module):
         # Rotary embeddings applied separately to Q and K
         self.apply_rotary_emb = ApplyRotaryEmb(enforce_enable=True)
 
-        # Sink attention weights (loaded but not used in vLLM flash_attn)
+        # Sink attention weights (used by the window-attention path).
         # The checkpoint stores these only for non-full-attention blocks
         self.use_sink = use_sink
         if use_sink:
@@ -215,23 +259,75 @@ class MiMoVisionAttention(nn.Module):
         cu_seqlens: torch.Tensor,
         max_seqlen: torch.Tensor,
     ) -> torch.Tensor:
-        """Window attention via flash_attn_varlen_func with window_size."""
-        from vllm.vllm_flash_attn import flash_attn_varlen_func
+        """Sliding-window attention via SDPA with an explicit window mask.
 
+        flash_attn_varlen_func silently ignores window_size on the Triton-AMD
+        flash-attn build used here (its prefill kernel has no local-attention
+        support), which turns every SWA block into full attention and corrupts
+        the vision tower's features. The tower is small (681M params), so
+        compute the masked attention explicitly. Window semantics match the HF
+        reference: query i attends to keys j with |i - j| <= window_size.
+        Also applies the per-head attention-sink bias on key 0 for blocks that
+        carry sinks (HF reference parity).
+        """
         w = self.visual_token_window_size
-        output = flash_attn_varlen_func(
-            q,
-            k,
-            v,
-            cu_seqlens_q=cu_seqlens,
-            cu_seqlens_k=cu_seqlens,
-            max_seqlen_q=max_seqlen,
-            max_seqlen_k=max_seqlen,
-            softmax_scale=self.scale,
-            causal=False,
-            window_size=[w, w],
+        lengths = (cu_seqlens[1:] - cu_seqlens[:-1]).tolist()
+        num_kv_groups = (
+            self.num_heads_per_partition // self.num_kv_heads_per_partition
         )
-        return output
+        sinks = self.sinks
+        if sinks is not None:
+            # sinks is stored unsharded ([num_heads]); take this rank's slice
+            sinks = sinks[
+                self.tp_rank
+                * self.num_heads_per_partition : (self.tp_rank + 1)
+                * self.num_heads_per_partition
+            ]
+
+        outputs = []
+        for q_c, k_c, v_c in zip(
+            torch.split(q, lengths, dim=0),
+            torch.split(k, lengths, dim=0),
+            torch.split(v, lengths, dim=0),
+        ):
+            seq_len = q_c.shape[0]
+            q_b = q_c.transpose(0, 1).unsqueeze(0)  # [1, H, S, D]
+            k_b = k_c.transpose(0, 1).unsqueeze(0)  # [1, HK, S, D]
+            v_b = v_c.transpose(0, 1).unsqueeze(0)
+            if num_kv_groups > 1:
+                k_b = k_b.repeat_interleave(num_kv_groups, dim=1)
+                v_b = v_b.repeat_interleave(num_kv_groups, dim=1)
+
+            col = torch.arange(seq_len, device=q.device)
+            # Bound bias memory to ~128MB by chunking queries when needed
+            block = max(64, min(2048, 16_000_000 // (self.num_heads_per_partition * max(seq_len, 1))))
+            out_blocks = []
+            for q0 in range(0, seq_len, block):
+                rows = col[q0 : q0 + block]
+                win_ok = (rows.unsqueeze(1) - col.unsqueeze(0)).abs() <= w
+                bias = torch.zeros(
+                    1,
+                    self.num_heads_per_partition if sinks is not None else 1,
+                    rows.shape[0],
+                    seq_len,
+                    device=q.device,
+                    dtype=q.dtype,
+                )
+                bias.masked_fill_(~win_ok, float("-inf"))
+                if sinks is not None:
+                    bias[:, :, :, 0] += sinks.to(q.dtype).view(1, -1, 1)
+                out_blocks.append(
+                    F.scaled_dot_product_attention(
+                        q_b[:, :, q0 : q0 + block],
+                        k_b,
+                        v_b,
+                        attn_mask=bias,
+                        scale=self.scale,
+                    )
+                )
+            out = torch.cat(out_blocks, dim=2)  # [1, H, S, D]
+            outputs.append(out.squeeze(0).transpose(0, 1))  # [S, H, D]
+        return torch.cat(outputs, dim=0)
 
     def forward(
         self,
@@ -297,7 +393,7 @@ class MiMoVisionAttention(nn.Module):
                     context_layer, "b s d -> s b d"
                 ).contiguous()
         else:
-            # Window attention via flash_attn_varlen_func with window_size
+            # Sliding-window attention (explicit SDPA mask; see _forward_window_attn)
             # Flatten batch dimension: [seq, head, head_dim]
             q_varlen = einops.rearrange(q, "b s h d -> (b s) h d")
             k_varlen = einops.rearrange(k, "b s h d -> (b s) h d")
@@ -405,7 +501,8 @@ class MiMoVisionTransformer(nn.Module):
             hidden_size=vision_cfg.hidden_size,
         )
 
-        norm_layer = partial(RMSNorm, eps=norm_eps)
+        # Merger norm: HF reference uses LayerNorm (not RMSNorm) here
+        norm_layer = partial(nn.LayerNorm, eps=norm_eps)
 
         # Rotary embedding for 2D positions.
         # With partial_rotary_factor=0.5 and head_size=qk_channels:
@@ -624,6 +721,13 @@ class MiMoVisionTransformer(nn.Module):
         # x: [total_tokens, 1, hidden_size] -> [total_tokens, hidden_size]
         x = x.squeeze(1)
         x = self.merger(x)
+        if _VIS_DUMP_PATH and not _VIS_DUMP_DONE:
+            _vis_dump_stash(
+                vision_merged=x.detach().float().cpu(),
+                vision_grid_thw=grid_thw.detach().cpu(),
+                vision_dtype=str(x.dtype),
+                vision_shape=tuple(x.shape),
+            )
         return x
 
     def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]) -> set[str]:
@@ -1213,6 +1317,12 @@ class MiMoV2OmniForCausalLM(nn.Module, SupportsMultiModal, SupportsPP, SupportsQ
                 quant_config=None,
                 prefix=maybe_prefix(prefix, "visual"),
             )
+        # The ViT's last block reaches |activation| ~ 5e5 in the reference
+        # trace (exceeds the float16 max of 65504): a float16 tower overflows
+        # to inf there and the merger emits NaN features, which the LM then
+        # splices in for the image tokens. Checkpoint visual.* weights are
+        # BF16; run the whole tower in BF16 regardless of the LM dtype.
+        self.visual.to(torch.bfloat16)
         audio_config = getattr(config, "audio_config", None)
         model_path = vllm_config.model_config.model
         if audio_config is not None:
@@ -1231,6 +1341,45 @@ class MiMoV2OmniForCausalLM(nn.Module, SupportsMultiModal, SupportsPP, SupportsQ
         self.make_empty_intermediate_tensors = (
             self.language_model.make_empty_intermediate_tensors
         )
+
+    def embed_input_ids(
+        self,
+        input_ids: torch.Tensor,
+        multimodal_embeddings: MultiModalEmbeddings | None = None,
+        *,
+        is_multimodal: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        out = SupportsMultiModal.embed_input_ids(
+            self,
+            input_ids,
+            multimodal_embeddings,
+            is_multimodal=is_multimodal,
+        )
+        if _VIS_DUMP_PATH and not _VIS_DUMP_DONE and multimodal_embeddings:
+            ph = None
+            if is_multimodal is not None:
+                ph = is_multimodal.nonzero(as_tuple=True)[0].to(out.device)
+            if ph is not None and ph.numel() > 0:
+                rows = out[ph]
+                span = out[int(ph.min()): int(ph.max()) + 1]
+                ids_ph = input_ids[ph]
+            else:
+                rows = out[:0]
+                span = out[:0]
+                ids_ph = input_ids[:0]
+            _vis_dump_stash(
+                input_embeds_rows=rows.detach().float().cpu(),
+                input_embeds_span=span.detach().float().cpu(),
+                input_embeds_dtype=str(out.dtype),
+                input_embeds_shape=tuple(out.shape),
+                placeholder_positions=(
+                    ph.detach().cpu() if ph is not None else None),
+                input_ids_at_ph=ids_ph.detach().cpu(),
+                input_ids_all=input_ids.detach().cpu(),
+                num_tokens=int(input_ids.shape[0]),
+            )
+            _vis_dump_try()
+        return out
 
     def _parse_and_validate_image_input(
         self, **kwargs: object
@@ -1442,7 +1591,14 @@ class MiMoV2OmniForCausalLM(nn.Module, SupportsMultiModal, SupportsPP, SupportsQ
                 multimodal_embeddings.extend(
                     self._process_audio_input(multimodal_input)
                 )
-        return tuple(multimodal_embeddings)
+        _mm_out = tuple(multimodal_embeddings)
+        if _VIS_DUMP_PATH and not _VIS_DUMP_DONE:
+            _vis_dump_stash(
+                mm_embeddings=[e.detach().float().cpu() for e in _mm_out],
+                mm_embeddings_dtype=[str(e.dtype) for e in _mm_out],
+                mm_embeddings_shapes=[tuple(e.shape) for e in _mm_out],
+            )
+        return _mm_out
 
     def forward(
         self,

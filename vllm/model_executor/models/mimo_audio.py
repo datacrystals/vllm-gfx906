@@ -690,7 +690,7 @@ class AudioEncoderAttention(nn.Module):
         max_seqlen: int,
         rope_position_embeddings=None,
     ):
-        from vllm.vllm_flash_attn import flash_attn_varlen_func
+        from vllm.v1.attention.backends.fa_utils import flash_attn_varlen_func  # GLM53-ROCM: resolves upstream flash_attn on ROCm
 
         bsz, _ = hidden_states.size()
 

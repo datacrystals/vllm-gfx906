@@ -47,9 +47,9 @@ from vllm.model_executor.model_loader.weight_utils import (
 from vllm.model_executor.models.utils import sequence_parallel_chunk
 from vllm.sequence import IntermediateTensors
 from vllm.v1.attention.backend import AttentionType
-from vllm.v1.attention.backends.flash_attn_diffkv import (
-    FlashAttentionDiffKVBackend,
-)
+from vllm.v1.attention.backends.triton_attn import TritonAttentionBackend
+
+from vllm.model_executor.models.mimo_state_dump import mimo_state_dump as _mimo_state_dump
 
 from .interfaces import MixtureOfExperts, SupportsPP
 from .utils import (
@@ -292,13 +292,18 @@ class MiMoV2Attention(nn.Module):
 
         sliding_window = sliding_window_size if sliding_window_size > -1 else None
 
-        # Use DiffKV backend when V has a different head dim than K
+        # Use the Triton backend with a zero-padded V when V has a different
+        # head dim than K: flash_attn_diffkv is not available on ROCm/gfx906
+        # (no flash-attn build, no FA version). The KV cache stores V padded
+        # to head_dim alongside K, and forward() slices the attention output
+        # back to v_head_dim before o_proj.
         if self.v_head_dim != self.head_dim:
-            FlashAttentionDiffKVBackend.set_head_size_v(self.v_head_dim)
-            attn_backend = FlashAttentionDiffKVBackend
-            logger.info_once("Using FlashAttentionDiffKVBackend for attention.")
+            attn_backend = TritonAttentionBackend
+            attn_head_size_v = self.head_dim
+            logger.info_once("Using TritonAttentionBackend with padded V.")
         else:
             attn_backend = None
+            attn_head_size_v = self.v_head_dim
 
         self.attn = Attention(
             self.num_heads,
@@ -312,7 +317,7 @@ class MiMoV2Attention(nn.Module):
             prefix=f"{prefix}.attn",
             sinks=self.attention_sink_bias,
             attn_backend=attn_backend,
-            head_size_v=self.v_head_dim,
+            head_size_v=attn_head_size_v,
         )
 
     def forward(
@@ -328,7 +333,31 @@ class MiMoV2Attention(nn.Module):
         if self.v_scale is not None:
             v = v * self.v_scale
 
+        # Zero-pad V to head_dim per head so the Triton backend can use a
+        # uniform (K, V) cache slot; the padded dims contribute zeros to the
+        # attention output.
+        # GLM53-MIMO-SHAPE-FIX: TritonAttentionImpl expects [T, H, D] 3-D
+        # tensors (no internal reshape). q/k arrive flat [T, H*D] from the
+        # fused split; v is viewed per head below. Passing 2-D q/k made the
+        # kernel stride garbage (token-salad output).
+        q = q.view(-1, self.num_heads, self.head_dim)
+        k = k.view(-1, self.num_kv_heads, self.head_dim)
+        if self.v_head_dim != self.head_dim:
+            v = torch.nn.functional.pad(
+                v.view(-1, self.num_kv_heads, self.v_head_dim),
+                (0, self.head_dim - self.v_head_dim),
+            )
+        else:
+            v = v.view(-1, self.num_kv_heads, self.v_head_dim)
+
         attn_output = self.attn(q, k, v)
+
+        # Slice the padded V head dim back before o_proj.
+        if self.v_head_dim != self.head_dim:
+            attn_output = attn_output.view(-1, self.num_heads, self.head_dim)[
+                ..., : self.v_head_dim
+            ]
+            attn_output = attn_output.reshape(-1, self.num_heads * self.v_head_dim)
 
         output, _ = self.o_proj(attn_output)
         return output
@@ -350,6 +379,7 @@ class MiMoV2FlashDecoderLayer(nn.Module):
 
         v_scale = getattr(config, "attention_value_scale", None)
 
+        print(f"MIMO-LAYER-DEBUG layer_id={layer_id} pat={getattr(self.config, "hybrid_layer_pattern", "MISSING")} compressed={self.is_compressed_softmax_layer() if hasattr(self.config, "hybrid_layer_pattern") else "NO-PATTERN"} cfg_id={id(self.config)}", flush=True)
         if self.is_compressed_softmax_layer():
             self.self_attn = MiMoV2Attention(
                 hidden_size=self.hidden_size,
@@ -505,10 +535,22 @@ class MiMoV2Model(nn.Module):
             hidden_states = intermediate_tensors["hidden_states"]
             residual = intermediate_tensors["residual"]
 
+        # VLLM_MIMO_STATE_DUMP: env-gated first-small-forward capture (see
+        # vllm/model_executor/models/mimo_state_dump.py); no-op unless set.
+        _mimo_dump = _mimo_state_dump.begin(positions.shape[0], positions)
+        if _mimo_dump:
+            _mimo_state_dump.record("embed", hidden_states, residual)
+
         for idx, layer in enumerate(
             islice(self.layers, self.start_layer, self.end_layer)
         ):
             hidden_states, residual = layer(positions, hidden_states, residual)
+            if _mimo_dump:
+                _mimo_state_dump.record(
+                    getattr(layer, "layer_id", self.start_layer + idx),
+                    hidden_states,
+                    residual,
+                )
 
         if not get_pp_group().is_last_rank:
             return IntermediateTensors(
@@ -516,6 +558,9 @@ class MiMoV2Model(nn.Module):
             )
 
         hidden_states, _ = self.norm(hidden_states, residual)
+        if _mimo_dump:
+            _mimo_state_dump.record("final", hidden_states, None)
+            _mimo_state_dump.end()
 
         return hidden_states
 
@@ -609,8 +654,15 @@ class MiMoV2Model(nn.Module):
             if "qkv_proj" in name:
                 if name in params_dict:
                     param = params_dict[name]
-                    loaded_weight = loaded_weight.chunk(tp_size, dim=0)[tp_rank]
-                    default_weight_loader(param, loaded_weight)
+                    # GLM53-MIMO-QKV-FIX: fused qkv must be head-sharded by the
+                    # param weight_loader, NOT row-chunked. Row-chunking breaks
+                    # layers with fewer kv heads than tp_size (4 kv / TP8 ->
+                    # 1856 rows/rank via head math vs 1696 via naive chunk).
+                    if "weight_shape" in name:
+                        default_weight_loader(param, loaded_weight)
+                    else:
+                        wl = getattr(param, "weight_loader", default_weight_loader)
+                        wl(param, loaded_weight, None)
                 continue
             stacked_matched = False
             for param_name, weight_name, shard_id in stacked_params_mapping:
@@ -665,6 +717,20 @@ class MiMoV2Model(nn.Module):
                 weight_loader = getattr(param, "weight_loader", default_weight_loader)
                 weight_loader(param, loaded_weight)
                 loaded_params.add(name)
+
+        # GLM53-MIMO-AUDIT: post-load checksums for offline comparison
+        try:
+            import torch as _t
+            keys = [k for k in params_dict if any(s in k for s in (
+                "layers.0.self_attn.qkv_proj", "layers.0.self_attn.o_proj",
+                "layers.1.mlp.experts.0.", "layers.1.mlp.experts.1.",
+                "embed_tokens", "lm_head"))]
+            for k in sorted(keys)[:24]:
+                p = params_dict[k]
+                d = p.data.float()
+                print(f"MIMO-AUDIT {k} sum={d.sum().item():.4e} abs={d.abs().sum().item():.4e} n={d.numel()}", flush=True)
+        except Exception as e:
+            print("MIMO-AUDIT-ERR", e, flush=True)
 
         return loaded_params
 

@@ -1,3 +1,33 @@
+## MiMo-V2.6-Flash (omni) port — status (8x MI50, Oct 2026)
+
+The same 8x MI50 box now also serves **MiMo-V2.6-Flash-INT4**
+(`MiMoV2OmniForCausalLM`) -- audio/image/video in, text out, with thinking.
+
+| Metric | Number | Notes |
+|---|---|---|
+| Needles | **24k / 65k / 130k GREEN** | 130k = 102.9k tok in 803s |
+| 150k agent behavior | **PASS** (MIMO-150K-V3B) | 5/5 facts, 3/3 destructive traps refused @ 177k tok |
+| Decode | **12.2 tok/s** (untuned) | target 20 -- GEMV/MoE kernel pass is the lever |
+| Prefill | **142-156 tok/s** (untuned) | vs GLM 271-318 on custom GEMM path |
+| Modalities | **audio + image + video all work** | vision outputs not in this checkpoint (no gen head) |
+
+Port war stories worth knowing (full writeup in MIMO_PORT_PLAN.md):
+
+- **Fused-QKV word-salad monster**: the checkpoint stores each layer's fused
+  qkv_proj pre-sharded for TP4 with per-chunk 128x128 block scales; a naive
+  flat `[q|k|v]` read scrambles Q/K/V into salad. Fix = per-chunk-padded
+  scale rows + row regroup at dequant. All three implementations (vLLM, HF
+  remote-code, pure-torch ref) were identically garbage until this.
+- **flash-attn Triton-AMD silently ignores `window_size`** -- every
+  sliding-window block silently runs full attention. Fork-wide hazard; the
+  MiMo ViT's 24 SWA blocks now use an explicit SDPA window mask + sinks.
+- **fp16 overflows the ViT** (block27 absmax ~5e5 > 65504) -> NaN image
+  features -> "!!!!" walls. Tower now runs BF16.
+- Serving preprocessor needed CLIP stats (not ImageNet); merger needs
+  LayerNorm (not RMSNorm). Post-fix tower matches HF at cos 0.9987.
+
+---
+
 ## GLM-5.3-Flash production numbers (8x MI50, Sept 2026)
 
 Everything below is **measured on 8x AMD MI50 32GB (gfx906, PCIe, no matrix
