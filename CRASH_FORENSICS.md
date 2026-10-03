@@ -94,3 +94,24 @@ degrading under whatever makes loads slow). Candidate check: compare
 dmesg/xid during a slow load vs a fast one; the slowness is observable
 in real time as an early warning that the boot will die -- the retry loop
 could watch shard-rate and abort+retry early instead of waiting for death.
+
+## ROOT CAUSE FOUND (22:5x): zombie-pinned VRAM starves every boot
+Tonight's boot collapse (4+ consecutive failures: segfaults, slow-load-then-
+death, WorkerProc init exceptions) has ONE mechanism:
+  ValueError: Free memory on device cuda:5 (7.85/31.98 GiB) on startup is
+  less than desired GPU memory utilization (0.88, 28.15 GiB)
+Culprit: 8 orphaned VLLM::Worker_TP processes (PIDs 3923-3930) + engine
+3762 from an earlier boot remained ALIVE after their parent died (killed
+sessions / crashed boots), each pinning 25.7 GB KFD VRAM. New boots
+allocate against 7 GiB free -> fail at WorkerProc.init_device or crash
+under allocator pressure (the segfaults and slow-load deaths are the same
+starvation seen from different angles).
+FIX (verified): explicit-PID SIGTERM of the orphan workers -> GPU5 VRAM
+25.7 GB -> 23.6 MB, subsequent boots healthy. After ANY kill/crash of the
+server: check `rocm-smi --showpids` for stale VLLM::Worker_TP before
+blaming the boot code. The pyc-purge correlation was spurious; the
+VLLM_MIMO_GATE_FP16_GEMV=0 correlation was spurious (flag is forward-time
+only). The ~50% flake historically = orphan-VRAM roulette.
+LESSON FOR RESTART SCRIPTS: after killing the server, wait AND verify
+KFD pids are gone (rocm-smi --showpids empty of VLLM::) before booting;
+if not, SIGTERM the stragglers by PID.
