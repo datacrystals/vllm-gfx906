@@ -35,8 +35,17 @@ suggests it); keep the 3.5 GiB KV pool (not 5.6) to leave >=2 GB free;
 never SIGTERM under VRAM pressure (power-cycle instead, rule learned 3x);
 consider ROCm version alignment (3 installs present).
 
-## Mode 2: silent engine-parent death at post-load (the "flaky boot segfault")
-NOT a segfault: zero segfault lines in any dmesg. Signature: weights load
+## Mode 2: segfault at boot (the "flaky boot segfault") -- CORRECTED 22:3x
+Earlier "NOT a segfault" claim is WRONG: the shell reports explicitly
+"Segmentation fault (core dumped)" on the launcher's exec'd python (seen
+in post_reset_boot2.log, PID 4982). Zero dmesg segfault lines is explained
+by core_pattern routing to apport (which saved nothing usable -- only a
+stale Sep 29 .crash exists). The faulthandler C-stack (_start/PyEval_EvalCode)
+is Python's own crash dump, consistent with a real SIGSEGV. A core-capture
+repro (core_pattern=core, ulimit -c unlimited) rolled a survivor boot
+(crash is ~50%) and got terminated mid-teardown; next crash repro should
+keep the plain core pattern. Original signature note kept below.
+Signature: weights load
 fine (486s), then WorkerProc "BrokenPipeError" — engine parent already dead
 at the worker-ready handshake. The post-load transition is where the
 GLM53-MIMO-AUDIT checksum block ran (24 tensors x .float() temps x 8 workers
