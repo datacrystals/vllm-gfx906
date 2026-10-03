@@ -73,3 +73,15 @@ allocator pressure at the load->ready transition; the plain allocator
 changes that pressure profile too. One env line, cheap to A/B, both failure
 modes benefit. Not applied yet (avoid launcher edits while quality agent
 owns restarts).
+
+### Mode 2 sub-pattern (2026-10-03 21:32 boot attempts 1-3)
+attempt 1: died BEFORE weight loading (0 shards) -- flaky early death.
+attempt 2: loaded at 7.5 s/shard (2.5x slower than normal ~3 s) and died
+at the post-load transition. attempt 3: loading at 3.3 s/shard, healthy.
+CORRELATION: the abnormally-slow-loading boot is the one that dies. Slow
+weight streaming may share a root cause with the death (host-RAM pressure,
+PCIe retry storms not visible in lspci link state, or KFD context setup
+degrading under whatever makes loads slow). Candidate check: compare
+dmesg/xid during a slow load vs a fast one; the slowness is observable
+in real time as an early warning that the boot will die -- the retry loop
+could watch shard-rate and abort+retry early instead of waiting for death.
