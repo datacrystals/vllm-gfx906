@@ -31,3 +31,24 @@ DECISIVE TESTS (agent-20's H3 path):
 If =0 is clean but slow, options: fp32-accumulate fp16 GEMM (keep speed,
 kill reordering), or deterministic split-K reduction for the gate only
 (1 GEMM/layer-step is cheap to make deterministic).
+
+## MEASURED CONFIRMATION (mimo_nondet_hammer, 2026-10-03 21:18 UTC)
+n=10 identical greedy (T=0) runs of the same short prompt:
+  distinct token streams: 10 of 10
+  first-divergence offsets vs run0: [25, 17, 11, 17, 25, 46, 18, 11, 11]
+  max |dlogprob| on common tokens: 1.88 nats (~6.5x probability swing)
+  runs even disagree on what the prompt asked (diagram vs Python program)
+VERDICT: forward-pass numerical NONDETERMINISM confirmed. Not near-tie
+sampling noise -- identical prefixes carry 1.88-nat logprob drift, so the
+compute itself is non-reproducible run to run. This single root cause
+explains all user symptoms: stray '.' tokens (punctuation flips),
+"doesn't know what it is doing" (flips interpretation of the same prompt),
+and cache warm/cold divergence (cached KV computed under one numerical
+realization, continuation under another).
+FIX TARGET: locate the nondeterministic kernel in the hot path. Ranked:
+(1) MoE gather/scatter atomics (256-expert grouped GEMM),
+(2) fp16 gate GEMM split-K (VLLM_MIMO_GATE_FP16_GEMV path),
+(3) attention reduction order (unified_attention), (4) nccl all-reduce
+ordering. Verification bar: hammer must go 10/10 -> 1/1 distinct streams
+AND cacheab warm-vs-cold must go byte-identical, with multi-turn + behavior
+probes staying PASS.
