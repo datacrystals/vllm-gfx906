@@ -52,3 +52,20 @@ FIX TARGET: locate the nondeterministic kernel in the hot path. Ranked:
 ordering. Verification bar: hammer must go 10/10 -> 1/1 distinct streams
 AND cacheab warm-vs-cold must go byte-identical, with multi-turn + behavior
 probes staying PASS.
+
+## DIAGNOSIS CLOSED (2026-10-03 21:5x, nondet_hammer2 on cache-OFF boot)
+Boot with enable_prefix_caching=False (verified in engine args):
+  # distinct streams: 8 of 8 greedy runs
+CONCLUSION: forward-pass compute nondeterminism is the ROOT CAUSE. The
+prefix cache is NOT the source -- it is an AMPLIFIER (frozen KV from one
+numerical realization vs continuation under another -> warm/cold splits
+and degenerate loops in multi-turn). Disabling cache = symptom relief
+only; the cure is deterministic kernels.
+FIX SCOPE (final): kernel-level. Ranked suspects unchanged:
+  1. MoE gather/scatter atomics (256-expert grouped GEMM, index_add family)
+  2. fp16 gate GEMM split-K (VLLM_MIMO_GATE_FP16_GEMV path)
+  3. attention reduction order (triton_unified_attention)
+  4. nccl all-reduce arrival-order effects
+VERIFICATION BAR (unchanged): hammer 8/8 -> 1/1 distinct on the same boot
+config, warm==cold byte-identical in cacheab, multi-turn + behavior probes
+green, needle 24k + France probe + thinkstrip pass.
