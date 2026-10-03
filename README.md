@@ -21,6 +21,26 @@ gate: a bf16 nn.Linear hitting a Tensile GEMM at 880 us/call x47 =
 rocm_unquantized_gemm in fp16 (VLLM_MIMO_GATE_FP16_GEMV=1, logits cast
 back to gate dtype) took that to ~1 ms/step -> 28.07 tok/s.
 
+Known limits / ops notes (2026-10-03 perf campaign):
+
+- **Concurrency tuning**: `--max-num-batched-tokens 2048` gives 3.16x
+  max-concurrency at 262,144 tokens (5.6 GiB KV pool); raising the budget
+  to 8192 drops it to 2.85x (bigger per-session reservation). Concurrent
+  long prefills need `--long-prefill-token-threshold` < budget/n (default
+  0 serializes: one prefill owns the whole budget per step).
+- **KV pool knob**: `KV_CACHE_BYTES` env on run_mimo_v2_6_omni.sh
+  (3.5 GiB default = 1.98x, 5.6 GiB = 3.16x).
+- **Router-gate fix env**: `VLLM_MIMO_GATE_FP16_GEMV=1` (default on).
+- **Teardown rule** (3 hard-wedged SIGTERMs -> power resets on this box):
+  signal the server only with an empty queue and >=2 GB free VRAM, else
+  `sudo ipmitool chassis power reset`. Close prof_patch windows before
+  restarts. After any reset: delete venv *.pyc, `systemctl --user stop
+  glm53.service` (it auto-respawns and grabs :9700), then fleet_free gate.
+- **`sync` before power resets** (a run-script edit was lost to dirty-page
+  eviction once).
+- Bare `import vllm._custom_ops` as the first vllm import segfaults in
+  standalone processes on this box (import models.mimo_v2 first).
+
 Port war stories worth knowing (full writeup in MIMO_PORT_PLAN.md):
 
 - **Fused-QKV word-salad monster**: the checkpoint stores each layer's fused
