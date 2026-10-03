@@ -42,6 +42,17 @@ else
   echo "no server running"
 fi
 
+# ROOT CAUSE c8c152ef1e: orphaned VLLM::Worker_TP keep 25.7GB pinned per
+# GPU after parent death -> next boot dies at WorkerProc.init_device. Sweep
+# them by explicit PID before booting.
+sleep 3
+for _try in 1 2 3 4 5; do
+    Z=$(ps -eo pid,comm | awk '$2 ~ /^VLLM::/ {print $1}')
+    [ -z "$Z" ] && break
+    echo "zombie KFD workers: $Z -- SIGTERM"
+    for p in $Z; do kill "$p" 2>/dev/null; done
+    sleep 4
+done
 # workers sometimes linger a beat after the parent exits
 sleep 3
 WRK=$(pgrep -c '^VLLM::' 2>/dev/null || true)
