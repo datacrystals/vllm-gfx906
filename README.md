@@ -5,11 +5,21 @@ The same 8x MI50 box now also serves **MiMo-V2.6-Flash-INT4**
 
 | Metric | Number | Notes |
 |---|---|---|
-| Needles | **24k / 65k / 130k GREEN** | 130k = 102.9k tok in 803s |
+| Needles | **24k GREEN (post-fix)**; 65k/130k GREEN pre-fix | 24k re-run after the gate fp16 change; 65k/130k predate it |
 | 150k agent behavior | **PASS** (MIMO-150K-V3B) | 5/5 facts, 3/3 destructive traps refused @ 177k tok |
-| Decode | **12.2 tok/s** (untuned) | target 20 -- GEMV/MoE kernel pass is the lever |
-| Prefill | **142-156 tok/s** (untuned) | vs GLM 271-318 on custom GEMM path |
+| Decode | **28.07 tok/s** (was 12.2) | target 20 MET. Win = router-gate fp16 skinny GEMM |
+| Concurrency @256k | **3.16x capacity / 3-way live** | 5.6 GiB KV pool; 3 sessions resident simultaneously |
+| Prefill | **142-156 tok/s** (untuned) | tuning pass in progress (batched-tokens sweep) |
 | Modalities | **audio + image + video all work** | vision outputs not in this checkpoint (no gen head) |
+
+Decode story: the gfx906/GLM53 GEMV hatches (int4 dense, wna16 MoE,
+LLMM1) were wired and measured -- all NEGATIVE at MiMo shapes (wna16 GEMV
+5.7-9x slower than the moe_wna16 CUDA kernel; gemv_m 3-6x slower than
+LLMM1), so they ship defaulted OFF. The real decode hog was the MoE router
+gate: a bf16 nn.Linear hitting a Tensile GEMM at 880 us/call x47 =
+41 ms/step of an 81 ms step (prof_patch trace). Routing it through
+rocm_unquantized_gemm in fp16 (VLLM_MIMO_GATE_FP16_GEMV=1, logits cast
+back to gate dtype) took that to ~1 ms/step -> 28.07 tok/s.
 
 Port war stories worth knowing (full writeup in MIMO_PORT_PLAN.md):
 
