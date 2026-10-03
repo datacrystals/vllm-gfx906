@@ -483,3 +483,23 @@ Reproduce:
       --max-tokens 300 --pad-tokens 0
 Note: profile capture windows must be closed before restarts (a 40-step
 window wedged one shutdown -> power reset).
+
+## 3x @256k CONCURRENCY: 3-way overlap OBSERVED (2026-10-03 16:58 UTC)
+Boot with KV_CACHE_BYTES=6012954214 (5.6 GiB): boot log says
+"GPU KV cache size: 144,896 tokens / Maximum concurrency for 262,144 tokens
+per request: 3.16x". Live test tools/mimo_conc_overlap.py --n 3
+--target-tokens 256000 --max-tokens 12000 (prompt builder sends ~192k real
+tokens - chars/3.6 under-counts 1.34x):
+* 16:58:34 UTC: vllm:num_requests_running = 3.0, kv_cache_usage = 0.61
+  -> all three 256k-class sessions resident in VRAM simultaneously.
+* 2-way overlap (req1 decode + req2 prefill) observed earlier at 16:18.
+Caveat found mid-test: decode collapsed to ~20 s/step (0.1 tok/s) while
+VRAM showed 33.48/34.34 GB used = only 0.86 GB free. Root cause candidate:
+the segfault-flaked boot attempt-1 of the 15:40 restart leaked VRAM into
+the live attempt-2 server, thrashing the allocator (eager path + expandable
+segments under pressure). The 28 tok/s single-user bench ran on a boot with
+~3.3 GB free. Responses at 12000 max_tokens would take ~33h in that state,
+so the run is being cut and re-run clean with bounded max_tokens so the
+three responses COMPLETE (the acceptance wording).
+Also wired: --long-prefill-token-threshold passthrough (LONG_PREFILL_THRESHOLD)
+so long prefills can interleave (default 0 serializes them).
