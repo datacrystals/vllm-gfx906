@@ -804,3 +804,23 @@ class MiMoV2ForCausalLM(MiMoV2FlashForCausalLM):
         "qkv_proj": ["qkv_proj"],
         "gate_up_proj": ["gate_proj", "up_proj"],
     }
+
+# --- gfx906 decode-GEMV anchor (env-gated; default OFF) -----------------
+# Mirrors the anchors at the tail of hy_v3.py and models/glm5next/__init__.py.
+# MiMo-V2.6-Flash-INT4 decode is dominated by skinny GEMVs (fp16 attention
+# qkv/o + lm_head + the layer-0 dense MLP) and int4 expert/dense GEMMs; all
+# four installs are idempotent and internally shape-gated, so anything
+# outside the decode envelope falls through to the stock kernels.
+if __import__("os").environ.get("VLLM_GFX906_GEMV") == "1":
+    from vllm.gfx906_ext import gfx906_gemv as _gfx906_gemv_mod
+    _gfx906_gemv_mod.install_gfx906_gemv()
+if __import__("os").environ.get("VLLM_GLM53_DENSE_GEMV") == "1":
+    from vllm.gfx906_ext import glm53_int4_gemv as _glm53_i4_mod
+    _glm53_i4_mod.install_glm53_dense_gemv()
+if __import__("os").environ.get("VLLM_GLM53_INT4_GEMV") == "1":
+    from vllm.gfx906_ext import glm53_int4_gemv as _glm53_i4_mod2
+    _glm53_i4_mod2.install_glm53_int4_gemv()
+if __import__("os").environ.get("VLLM_GLM53_WNA16_GEMV") == "1":
+    from vllm.gfx906_ext import glm53_wna16_gemv as _glm53_w16_mod
+    _glm53_w16_mod.install_glm53_wna16_gemv()
+# --- end gfx906 decode-GEMV anchor ---

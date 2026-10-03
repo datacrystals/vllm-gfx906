@@ -343,3 +343,55 @@ matches on this run. Earlier single-shot runs showed greedy nondeterminism
 flipping a near-tie on one cold variant (1 compliance outlier in 3); treat
 policy-adherence as mostly-but-not-perfectly stable and keep client-side
 tool allowlists for destructive ops regardless.
+
+## PERF CAMPAIGN 2026-10-03 (decode 12.2->20 / 3x@256k / prefill) — in progress
+Baseline re-measured tonight with tools/mimo_decode_instr.py (instruction
+prompt, 300-token essay, T=0 — prose-fillers EOS in 1 token, see below):
+decode 12.35 tok/s median of 3 reps (12.448/12.348/12.338). Matches the
+documented 12.2. Stock tools/mimo_perf_bench.py decode mode feeds prose-only
+prompts -> output_tokens=1 -> unusable for decode timing on this RL model;
+mimo_decode_instr.py is the companion that elicits real essays.
+
+### GEMV wiring (first lever, landed)
+Findings from dispatch archaeology:
+* Dense CT int4 linears -> ExllamaLinearKernel -> ops.gptq_gemm (ROCM kernel
+  preference list in model_executor/kernels/linear/__init__.py puts Exllama
+  first for gfx906).
+* MoE int4 g32 experts -> compressed_tensors_moe_wna16 ->
+  fused_experts_impl -> dispatch_fused_moe_kernel -> should_moe_wna16_use_cuda
+  (returns True at decode on ROCm!) -> ops.moe_wna16_gemm CUDA kernel
+  (the GLM53 profiled slow path). The triton path
+  (invoke_fused_moe_wna16_triton_kernel) is only used at larger M.
+* The glm53_int4_gemv / glm53_wna16_gemv hooks from patches/gdn were NEVER
+  wired anywhere (grep of site-packages finds zero importers). VLLM_GFX906_GEMV=1
+  was set in run_mimo_v2_6_omni.sh but its anchor lives only in
+  glm5next/__init__.py and hy_v3.py tails -> never fired for MiMo either.
+
+Shipped (both trees, .bak-gemv backups, py_compile OK):
+* vllm/gfx906_ext/glm53_int4_gemv.py  (vendored from patches/gdn)
+* vllm/gfx906_ext/glm53_wna16_gemv.py (vendored; fixed a real bug:
+  glm53_wna16_supported referenced bare `sorted_token_ids` -> NameError on
+  every supported-check; now an optional arg, caller passes it)
+* model_executor/models/mimo_v2.py tail: env-gated install anchor for all
+  four hatches (VLLM_GFX906_GEMV / VLLM_GLM53_DENSE_GEMV / VLLM_GLM53_INT4_GEMV
+  / VLLM_GLM53_WNA16_GEMV). Anchor verified by /tmp/smoke_gemv_install2.py:
+  all 4 hooks land on the real dispatch targets via the server import path
+  and uninstall restores them.
+* run_mimo_v2_6_omni.sh: exports the three GLM53_* gates (A/B overridable
+  from the invoking env).
+Offline numerics unchanged and re-verified: check_glm53_wna16_gemv.py PASS
+(tier1 bit-exact, tier2 <=2e-3), check_glm53_int4_gemv.py PASS (unpack
+bit-exact, GEMV err <=5e-6 on GLM shapes).
+
+Known env quirk (NOT a product bug): importing vllm._custom_ops first in a
+bare python process segfaults on this box; the server import order never
+does this. Smoke tests must import models.mimo_v2 first.
+
+### KV math for target 2 (measured/derived)
+Per-rank 256k session: 9 full-attn layers x 1 kv-head/rank x (192+128) x 2B x
+262144 = 1.41 GiB (+ SWA-128 x39 window-bounded ~3 MB). Pool is 3.5 GiB
+(--kv-cache-memory-bytes) -> boot log "GPU KV cache size: 90,368 tokens",
+"Maximum concurrency for 262,144 tokens per request: 1.98x". 3x needs
+~4.23 GiB fp16 or ~2.1 GiB int8. VRAM: 30.8 GB used of 34.3 GB (~3.2 GB free).
+Levers: int8 KV (tools/int8_kv_kernel.py, pre-authorized), pool raise, and
+--kv-offloading-size + --disable-hybrid-kv-cache-manager for parked sessions.
