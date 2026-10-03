@@ -107,3 +107,21 @@ FIX ROUTING (final): Bug A = SWA prefix-cache block accounting (clear
 target). Bug B = MoE kernel determinism (rank-1 suspect: scatter_add
 atomics) or, if unfixable at acceptable cost, the documented mitigation
 (small temperature makes tied-token flips intentional sampling).
+
+## BUG B FIX VERDICT (afterfix run): PARTIAL -- 7/8, bar not met
+Patched moe_wna16 (deterministic accumulation) built, installed, verified
+boot, then hammered on the prod config:
+  label=afterfix n=8 -> # distinct streams: 7 of 8
+(Compare cache-off/gate-off ablation: 8/8. Caveat: configs differ, so the
+1-run improvement is not strictly attributable -- but 7/8 << the 1/1 bar
+either way.)
+CONCLUSION: the MoE patch removed one chaos source at best; other
+nondeterminism remains (attention reductions / NCCL / remaining MoE paths).
+Deep kernel determinism is not closed tonight.
+PRACTICAL RESOLUTION for Bug B (documented mitigation): the exact float
+ties from INT4 plateaus make silent token flips unavoidable at T=0 on this
+stack; using temperature >= 0.1 turns those flips into intentional
+sampling, which users experience as normal variability instead of
+corrupted output. This is the shippable answer alongside the Bug A cache
+fix. Further kernel work (attention path) is the follow-up if full
+determinism is ever required.
