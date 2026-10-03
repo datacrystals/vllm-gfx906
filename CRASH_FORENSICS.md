@@ -52,3 +52,17 @@ death). Swept clean afterwards.
 /tmp boot logs are wiped by machine reboots (tmpfiles) — the freeze boot's
 stdout log was lost that way. Kernel journal (/var/log/journal) survives.
 Future boot logs should go to /data/tmp.
+
+## SUSPECT CONFIG: expandable_segments <-> svm_range_restore_work (2026-10-03)
+The launcher env sets PYTORCH_ALLOC_CONF="expandable_segments:True". ROCm's
+expandable segments are SVM-backed (shared virtual memory ranges), and
+svm_range_restore_work is the amdgpu workqueue that restores those ranges on
+eviction/resume. Our config may be feeding the exact CPU-hog storm seen
+before the 19:18 freeze (64x >10ms in 2 min) and during teardowns.
+MITIGATION TO A/B at next convenient restart: drop expandable_segments
+(plain caching allocator) -> less SVM range churn -> fewer restore storms.
+Also candidate: the silent post-load parent death (Mode 2) coincides with
+allocator pressure at the load->ready transition; the plain allocator
+changes that pressure profile too. One env line, cheap to A/B, both failure
+modes benefit. Not applied yet (avoid launcher edits while quality agent
+owns restarts).
