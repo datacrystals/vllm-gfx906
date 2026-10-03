@@ -518,3 +518,30 @@ use 5.2 GiB (3x fits: 3x1.77=5.31... actually 3x255k sessions = 3x1.74 GiB
 = 5.22 GiB, tight) or accept power-cycle as the restart method.
 Current boot (post-reset-3): 5.6 GiB + LONG_PREFILL_THRESHOLD=512 for the
 bounded 3x completion test (max_tokens 300 so responses finish).
+
+## 2026-10-03 evening: 3x completion run + config findings
+* **KV capacity depends on max_num_batched_tokens**: 5.6 GiB pool gives
+  "Maximum concurrency for 262,144 tokens per request: 3.16x" at budget
+  2048 but only 2.85x at budget 8192 (same num_gpu_blocks=3398; the
+  per-session estimate grows with the batch budget). 3x full-256k sessions
+  therefore REQUIRE budget=2048; the 4096/8192 prefill sweep must be
+  measured with fewer/shorter sessions. Interleave lever:
+  LONG_PREFILL_THRESHOLD < budget/n admits n concurrent long prefills
+  (threshold 682 with budget 2048 -> 3-way).
+* **Lost write lesson**: a run-script edit (MAX_BATCHED_TOKENS passthrough)
+  was lost because ipmitool reset ran 1s after write_text - dirty pages
+  never hit disk. Always `sync` before power resets. (Redone + synced.)
+* **restart_mimo.sh poll window**: was 5 min per attempt, too short for
+  cold-cache weight loads (~8 min after reset) -> 4 "failed" attempts that
+  were killed mid-load. Extended to 10 min; a survivor of the kill loop
+  ended up serving fine, which is how the gap was noticed.
+* Prefill before-number re-measured (budget 2048, pool 3.5 GiB):
+  143.09 tok/s at 15121 real tokens (20k target) - consistent with the
+  documented 142-156 baseline. The 60k before-run was lost to a transient
+  ssh drop; re-run in the sweep pass.
+* 3x residency evidence (prior run): num_requests_running=3.0 sustained
+  17:29-19:12 with kv_cache_usage 0.09 -> 0.71 (three ~256k sessions
+  growing together, ~617k tokens of KV resident). That run's client died
+  at 19:12 (ssh drop killed the in-flight HTTP requests); the completion
+  run uses a detached nohup client with incremental logging to
+  /data/tmp/3x_samples.log + /data/tmp/3x_results.log.
