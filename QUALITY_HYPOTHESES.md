@@ -143,3 +143,19 @@ fp32 atomicAdd, final cast copy to fp16. Target: hammer 1/8, drift <=1e-3.
 EXONERATED (do not re-litigate): prefix cache FOR BUG B (note: Bug A cache
 KV mismatch stands separately), detokenizer, chat template, gate GEMM,
 moe_sum, triton attention reduce_segments.
+
+## FINAL FIX VERDICT (qgemmfix run): 8/8 -- fixes harden but do NOT cure
+moe_wna16 fp32-atomic fix + q_gemm.cu fp32-accumulator/launcher-zero fix,
+both deployed and verified on the prod config:
+  label=qgemmfix n=8 -> 8/8 distinct, global drift 0.308 nat
+(Compare: baseline 8/8 0.24-0.46; moe-only 7/8 0.35.) Within noise of each
+other -- the two fixed races were REAL bugs but not the dominant remaining
+noise source (residual: attention reductions / NCCL / deeper paths).
+STOP-RULE TRIGGERED (per plan): no further kernel thrash tonight.
+SHIPPABLE RESOLUTION (honest):
+  * Both kernel fixes kept (they are correctness hardening: the q_gemm
+    zero-vs-add race could wipe partials; fp32 atomics cut tie-flip noise).
+  * User-facing mitigation: temperature >= 0.1 converts residual near-tie
+    flips into intentional sampling variability.
+  * Full T=0 determinism on this gfx906 INT4 stack = documented follow-up
+    (attention/NCCL reduction order).
