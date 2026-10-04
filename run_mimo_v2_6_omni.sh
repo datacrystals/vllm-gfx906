@@ -82,6 +82,13 @@ export VLLM_GLM53_INT4_GEMV="${VLLM_GLM53_INT4_GEMV:-0}"
 # router gate fp16 skinny GEMM (profile: bf16 Tensile gate GEMM was 41ms/step)
 export VLLM_MIMO_GATE_FP16_GEMV="${VLLM_MIMO_GATE_FP16_GEMV:-1}"
 export VLLM_GFX906_MLP_FP32_DOWN=1
+# gfx906 MoE PREFILL hatch: dequant int4 experts -> fp16 Tensile GEMMs in
+# gfx906_ext/moe_dqmm.py (Triton fused MoE tops out ~3.5 TFLOP/s = 89% of
+# prefill GPU; Tensile sustains ~12 at 16384-token chunks). Measured
+# 2026-10-04: 737/521 tok/s @20k/60k vs 205/184 Triton baseline (3.6x/2.8x);
+# decode unaffected (path engages only when step tokens*topk >= 8192).
+# Pair-capped + cached workspaces; survives sweep->decode soak. Default ON.
+export VLLM_GFX906_MOE_DQMM="1"
 export VLLM_ENGINE_READY_TIMEOUT_S=1800
 export VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS=7200
 

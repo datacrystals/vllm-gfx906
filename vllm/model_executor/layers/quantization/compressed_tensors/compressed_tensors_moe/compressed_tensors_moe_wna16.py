@@ -303,6 +303,30 @@ class CompressedTensorsWNA16MoEMethod(CompressedTensorsMoEMethod):
     ) -> torch.Tensor:
         from vllm.model_executor.layers.fused_moe import fused_experts
 
+        # gfx906 prefill path: dequant int4 experts -> fp16 Tensile GEMMs
+        # (Triton fused MoE tops out ~3.5 TFLOP/s on gfx906 = the prefill
+        # cliff; Tensile sustains ~7). Engaged for large per-step M only.
+        from vllm.gfx906_ext import moe_dqmm
+        if moe_dqmm.enabled():
+            e_local = layer.w13_weight_packed.shape[0]
+            topk = topk_ids.shape[1]
+            if x.shape[0] * topk >= e_local * moe_dqmm.min_per_expert():
+                return moe_dqmm.moe_dqmm_forward(
+                    x,
+                    layer.w13_weight_packed,
+                    layer.w13_weight_scale,
+                    getattr(layer, "w13_weight_zero_point", None),
+                    layer.w2_weight_packed,
+                    layer.w2_weight_scale,
+                    getattr(layer, "w2_weight_zero_point", None),
+                    topk_weights,
+                    topk_ids,
+                    layer.expert_map,
+                    layer.apply_router_weight_on_input,
+                    self.group_size,
+                    layer.activation,
+                )
+
         return fused_experts(
             x,
             layer.w13_weight_packed,
