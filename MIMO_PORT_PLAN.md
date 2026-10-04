@@ -791,3 +791,52 @@ kernels):
 The reconstruct (size_m > MAX_Q_GEMM_ROWS) path is unchanged: it is a full
 non-split cuBLAS GEMM with beta=0. Backups: q_gemm.cu.bak-fp32acc,
 matrix_view.cuh.bak-fp32acc, and _C.abi3.so.bak-fp32acc in the venv.
+
+## 2026-10-04 q_gemm.cu fix verification: bar NOT met - status and next step
+
+Verification after deploying the q_gemm.cu fp32-atomic fix (built _C, deployed
+to vllm_dsv4_env site-packages + build tree; kernel confirmed ACTIVE: for ROCm,
+choose_mp_linear_kernel() puts ExllamaLinearKernel (ops.gptq_gemm) FIRST for
+this int4-g32 checkpoint - the patched path is the live one):
+* tools/mimo_nondet_hammer2.py 9700 qgemmfix (8x identical fresh greedy):
+  8/8 distinct streams, max|dlogprob| drift 0.31 nat. Bar (1/8, <=1e-3) NOT
+  met. Same signature as before the fix.
+* tools/mimo_behavior_probe.py 9700 8000 1 --max-tokens 512 x3: FAIL/FAIL/PASS
+  (the two FAILs forgot all 5 embedded facts - the degenerate mode). Bar
+  (3/3 PASS) NOT met.
+* Quality gates (single-turn) all PASS: France probe ("The capital of France
+  is **Paris**."), needle ~25k-token recall ("orchid-lantern-42"),
+  tools/verify_thinkstrip.py (reasoning has no leading think marker).
+  Consistent with the original report: single-turn is fine; the failure is
+  T=0 nondeterminism / long-context flakiness.
+
+Honest state of the fix (shippable as-is): BOTH custom quantized-GEMM sites
+now accumulate in fp32 with native fp32 atomics and have no zero-vs-add race
+(moe_wna16.cu + q_gemm.cu gptq/alt families) - real determinism hardening,
+~1e4 rounding-noise reduction at those sites, plus a correctness fix for the
+zero-vs-add erase race. But the dominant T=0 logprob noise (~0.05-0.3 nat)
+is NOT yet eliminated, so greedy outputs still flip near ties. Mitigation
+until the residual source is pinned: run agent workloads at temperature>0
+(sampling absorbs near-tie flips; greedy amplifies them into hard flips).
+
+Where the residual source must be (both custom-kernel races are now fixed,
+and these were already exonerated: prefix cache, detokenizer, chat template,
+gate fp16 GEMM, moe_sum, triton attention reduce_segments, marlin linear
+(not selected on ROCm), CompressedTensorsWNA16 -> ExllamaLinearKernel is the
+live dense path):
+1. TOP SUSPECT: hipBLAS/Tensile GEMMs with atomic split-K (the unquantized
+   F.linear calls: router gate (both bf16 and fp16 variants A/B'd noisy),
+   lm_head if unquantized, and cublasHgemm in q_gemm's reconstruct path for
+   size_m>32). This class is the only always-on GEMM path not yet audited for
+   atomics, and it fits the unchanged noise after both custom-kernel fixes.
+   DEFINED NEXT TEST (one boot): VLLM_ROCM_USE_SKINNY_GEMM=1 reroutes thin
+   GEMMs to LLMM1/triton_matmul (fixed-order warp reductions in
+   csrc/rocm/skinny_gemms.cu) then re-run tools/mimo_nondet_hammer2.py;
+   1/8 + <=1e-3 would convict hipBLAS and the fix is to route (or rewrite)
+   the remaining GEMMs through deterministic kernels.
+2. Secondary: NCCL allreduce ordering under TP=8 (unlikely), and the triton
+   wna16 prefill path's pair-row stores (analyzed single-writer; low odds).
+
+Prefill sweep (budget 2048/4096/8192 via tools/prefill_sweep.sh) NOT run
+tonight: it was gated on the quality bar being met. Harness is staged and
+ready; run it after the skinny-GEMM A/B.
