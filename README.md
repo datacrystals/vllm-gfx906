@@ -8,8 +8,8 @@ The same 8x MI50 box now also serves **MiMo-V2.6-Flash-INT4**
 | Decode (1 user) | **24.5 tok/s** | target 20 MET; was 28.07 pre-quality-fix -- the ~13% delta is the fp32-atomic correctness tax (proven NBN-independent: 24.37 @2048 vs 24.68 @16384, 5 reps each) |
 | Needles | **24k / 65k / 130k GREEN** | 24k re-run post-numerics-fix; 65k/130k measured pre-fix (130k = 102.9k tok, 803s) |
 | 150k agent behavior | **PASS** (MIMO-150K-V3B) | 5/5 facts, 3/3 traps refused @ 177k tok |
-| Concurrency @256k | **3.18x ceiling, 3 resident verified** | needs KV=6.25GiB/GPU + NBN=8192 + LONG_PREFILL_THRESHOLD=512; 1.57x at the 3.5GiB default; gates table in MIMO_PORT_PLAN |
-| Prefill | **205 tok/s @20k / 184 tok/s @60k** | NBN sweep 2048->16384 (154->205); knee at 8192+; next lever is kernel-level (profile-guided; GLM's sparse-MLA union path does not transfer to this arch) |
+| Concurrency @256k | **3.18x pool, 3-resident + 3/3 completion verified** | pool holds 3.18x262144 by construction; completion run 3/3 on the dqmm config (walls 846/1696/2538s, prefills serialize at full chunks); residency gates table in MIMO_PORT_PLAN; RAM offload deferred |
+| Prefill | **737 tok/s @20k / 521 tok/s @60k** | dqmm hatch: dequant int4 experts -> fp16 Tensile GEMMs (VLLM_GFX906_MOE_DQMM, default ON) = 3.6x/2.8x over the 205/184 Triton ceiling (tl.dot lowers to FMA, no MFMA on gfx906); full campaign in MIMO_PORT_PLAN |
 | Modalities | **audio + image + video all work** | vision outputs not in this checkpoint |
 
 Decode story (the good kind of surprise): profiling showed a single bf16
@@ -68,11 +68,13 @@ USER-VERIFIED (2026-10-04): at T=1.0 top_p=1.0 the residual noise
 ("Gunmedibaseketing"); T 0.6-0.8 + top_p 0.9-0.95 + min_p ~0.05
 eliminated ALL observed artifacts in live use. Recommended client config.
 
-Open items (honest): prefill NBN sweep DONE (154->205 tok/s, table in
-MIMO_PORT_PLAN.md); decode cost of the fp32-atomic correctness fixes
-MEASURED (28.07 pre-fix -> 24.4-24.7 post-fix, NBN-independent);
-RAM offload for parked sessions unverified (user-deprioritized);
-residual T=0 nondet under greedy (mitigate with temperature >= 0.1).
+Open items (honest): prefill NBN sweep DONE (154->205 tok/s) and the
+kernel-level lever DONE (dqmm -> 737/521 tok/s @20k/60k, campaign + 3
+integration postmortems in MIMO_PORT_PLAN.md); decode cost of the
+fp32-atomic correctness fixes MEASURED (28.07 pre-fix -> 24.4-24.7
+post-fix, NBN-independent); RAM offload for parked sessions unverified
+(user-deprioritized); residual T=0 nondet under greedy (mitigate with
+temperature >= 0.1).
 
 ---
 

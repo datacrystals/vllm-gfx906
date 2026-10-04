@@ -436,6 +436,96 @@ the probe prompt avoids the flake.
 Note the auto-derived --long-prefill-token-threshold (~682) interacts
 with NBN; the winner row in README is the configuration left running.
 
+## Prefill dqmm campaign (2026-10-04): 205 -> 737/521 tok/s
+
+Profile first (VLLM_GFX906_PROF_DIR traces): fused_moe_kernel_gptq_awq
+(Triton) = 19.49s of 21.94s prefill GPU time (89%), ~39.9 ms/call; NCCL
+1.64s; attention 0.31s. GPU 98% busy -- the work is just slow: Triton
+tl.dot lowers to FMA on gfx906 (no MFMA), ceiling ~3.5 TFLOP/s, and the
+205 tok/s server ceiling is exactly MoE FLOPs (18.9 GFLOP/token over 47
+layers) at that rate. Alternatives measured and eliminated: legacy CUDA
+moe_wna16_gemm_kernel 202/95 ms per gate_up/down call at M=512 (5x
+worse -- weight re-read per token-block); custom CUDA prefill kernel
+(COLS restructure, correct, maxerr 0.0027) 2.5 TFLOP/s -- parity,
+shelved; Triton M-scaling 512->2048 only +19%.
+
+Winner (shipped, VLLM_GFX906_MOE_DQMM default ON, gfx906_ext/moe_dqmm.py):
+dequant int4 experts to fp16 (Triton _dq4_kernel, fp32 math -> one
+rounding) + per-expert torch.mm on Tensile, fp32 index_add combine
+(same contract as the fp32-atomic quality fix; reduced-precision-
+reduction disabled). Engaged only when step tokens*topk >= 8192, so
+decode (M=1) never touches it.
+
+Numbers (8x MI50, NBN=16384, KV=6.25GiB/GPU):
+- 20k: 737.1 tok/s (15,871 tok, 21.53s) = 3.6x the 204.7 baseline.
+  Real compute, not prefix cache: warmup 21.64s ~= measure 21.42s on
+  distinct variants; engine prefix_cache_stats hits=0.
+- 60k: 521.3 tok/s (44,801 tok, 85.94s) = 2.8x the 183.7 baseline.
+- Decode after: 24.60 tok/s median (3/3 reps x 256 tok, ignore_eos)
+  -- inside the 24.4-24.7 pre-dqmm band.
+- Quality gates on the dqmm path: France probe correct, 24k needle
+  recall exact, reasoning/content split clean.
+- Counterpoint that keeps us honest: at 2048-token chunks the same
+  path measures 152/140 tok/s -- 26% SLOWER than baseline (47
+  GPU->CPU syncs + ~15k small launches + 1.6GB/layer dequant traffic
+  per chunk eat the GEMM gain). dqmm only wins at 8192-16384 chunks.
+
+Three integration postmortems (each cost a boot cycle):
+1. NotImplementedError: dqmm activation MoEActivation.SILU --
+   layer.activation is an enum; the offline harness passed a string.
+   Normalize via .name. (Caught only at server scale; py_compile
+   green throughout, lesson: integration-test the real apply() args.)
+2. HIP OOM at 60k steady state: repetitive-bench-text routing dumped
+   ~15k pairs into one expert and `O32 = O32 * w_e[:, None]` tried a
+   second 238MiB fp32 alloc with 0 free. Fixed with PAIR_CAP=4096
+   pair slicing + in-place multiply + hoisted per-expert dequant.
+   Numerics unchanged (each pair accumulated exactly once).
+3. HSA_STATUS_ERROR_OUT_OF_RESOURCES (free mem: 8 MB) killing a
+   worker AFTER a clean sweep, during the decode bench: per-layer
+   workspace churn (out32 256MiB + W13/W2 50MiB x 47 layers x chunk)
+   vs PYTORCH_ALLOC_CONF expandable_segments:False (standing; ES:True
+   wedged GPUs 2/2 in the SVM A/B) fragmented VRAM to death. Fixed
+   with a grow-only module-level buffer cache. Validated by the exact
+   kill sequence: boot -> 20k/60k sweep -> decode bench, server 200
+   throughout.
+
+Commit dba5580339 (hook in compressed_tensors_moe_wna16.py apply(),
+gfx906_ext/moe_dqmm.py, run-script default). Bench harness gained
+--ignore-eos en route: raw repetitive-prose prompts at T=0 EOS
+instantly on this chat model (finish=stop, empty text) regardless of
+server config -- a prompt artifact, not a regression.
+
+Where the ceiling moved to: at 256k context prefill is ATTENTION-bound,
+not MoE-bound. The 9 full-attention layers (num_attention_heads=64,
+head_dim=192, GQA kv=4) cost ~2-3x the MoE FLOPs per 16384-token chunk
+at deep context and run on the same Triton FMA path (no MFMA on
+gfx906). Measured 2026-10-04: 3x256k completion run prefills at
+~210 tok/s effective (vs ~120 est. with the Triton MoE still in --
+dqmm still ~1.7x even here). py-spy on a live worker: 6/6 samples
+parked at the dqmm bincount .cpu() sync = GPU-bound, and the dqmm
+GEMM math only accounts for ~20s of the ~78s chunk; the rest is
+full-attention. Next lever if prefill@length ever matters more than
+decode: a Tensile/CK batched-GEMM path for the 9 full layers
+(the 39 SWA-128 layers are already cheap by design).
+
+3x256k completion evidence (2026-10-04, dqmm config, NBN=16384 +
+KV=6.25GiB + LPT unset): tools/mimo_256k_conc.py --n 3 -> LIVENESS
+3/3, RESULT conc_256k n=3 ok=3. Walls 846/1696/2538s (prefills
+serialize at full-budget chunks -- sessions queue rather than
+interleave without LPT -- but total wall still beats the old
+interleaved ~205 tok/s config ~3x). Server idle + KV=0 after, no
+OOM/HSA events through the run. Honest footnote: the script's
+target_tokens=256000 lands at 191,684 actual prompt tokens
+(chars/3.6 filler approximation); the 6.25GiB pool is sized
+3.18x262144 at boot, and the scheduler admitted all three sessions
+concurrently with ~30% headroom, so 3x262144 fits by pool
+construction + observed admission + 3/3 completion. Also measured
+en route: dqmm's per-chunk fixed dequant cost makes small chunks
+slow -- 7.4k-token chunk -> 202 tok/s (parity with Triton at that
+size); dqmm only earns its keep at >=12-16k chunks, which single-
+stream production prefills at NBN=16384 always get.
+
+
 ## Crash postmortem (2026-10-03): "flaky boot segfaults" = zombie VRAM
 Signature: ValueError: Free memory on cuda:5 (7.85/31.98 GiB) < desired
 28.15 GiB. Cause: orphaned VLLM::Worker_TP processes (8 x 25.7GB seen)
