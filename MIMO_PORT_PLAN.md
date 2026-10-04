@@ -745,3 +745,49 @@ VLLM_MIMO_GATE_FP16_GEMM (A/B 8/8 both ways), moe_sum (fixed-order per-element
 loop), triton attention reduce_segments (deterministic tl.sum/tl.max over
 segment partials; no atomics in triton_prefill_attention.py /
 triton_unified_attention.py).
+
+## 2026-10-04 RETRACTION: prefix cache is NOT a cause of the output-quality bugs
+
+Earlier tonight some notes framed two separate bugs ("Bug A" prefix-cache
+corruption + "Bug B" numerics nondeterminism). **RETRACTED**: there is ONE
+root cause. The prefix-cache-as-cause reading is explicitly withdrawn:
+* Decisive test (booted `--no-enable-prefix-caching`, everything else
+  unchanged): nondeterminism identical (8/8 distinct streams, same drift).
+* Frozen-history multi-turn warm-vs-cold probe on that boot: 5/5 turns
+  IDENTICAL, all 17 logic checks PASS.
+* mimo_cacheab.py warm-vs-fresh mismatches are fully explained by the T=0
+  noise floor (both arms fail the fresh-vs-fresh control at the same rate).
+* Hybrid-SWA block accounting reviewed (single_type_kv_cache_manager.py
+  SlidingWindowManager.find_longest_cache_hit, hybrid fixed-point in
+  kv_cache_coordinator.py, block_pool cache_full_blocks/free/touch): correct
+  and conservative for window=128 < block=256; no stale-block bug exists.
+Single root cause = nondeterministic fp16 atomic split-K combine in the
+quantized GEMM kernels (see sections below). Any README/plan text that still
+lists prefix-cache corruption as a bug should be read as superseded by this
+retraction.
+
+## 2026-10-04: q_gemm.cu fp32-atomic fix (the dominant source)
+
+csrc/quantization/gptq/q_gemm.cu (dense int4 GEMM for every quantized Linear -
+qkv/o/gate/up/down, all 48 layers, prefill AND decode) had the same bug class
+as moe_wna16.cu, plus a worse zero-vs-add race:
+* epilogue `atomicAdd(half2*)` of K-chunk partials (fp16 CAS on gfx906: no
+  native fp16 atomics; ~size_k/BLOCK_KN_SIZE=16-32 contributors per output in
+  racy order, each rounded to fp16).
+* `if (blockIdx.z == 0) *(uint64_t*)c_... = 0` output zero-init RACED with
+  other K-chunks' atomicAdds - a late zero wiped already-added partials.
+
+Fix (implemented in both the gptq 2/3/4/8-bit kernels and the alt 4/8-bit
+kernels):
+1. Kernel outputs are now fp32 (`MatrixView_float_rw` added in
+   matrix_view.cuh; `float* c` threaded through gemm_half_q_half_cuda_part /
+   gemm_half_q_half_alt and the kernel typedef).
+2. Zero-init moved to the launcher: gemm_half_q_half_cuda allocates an
+   at::zeros fp32 accumulator (cannot race with adds) and folds it into the
+   caller's fp16 output exactly once (`cudaMemcpyAsync` of the half cast).
+3. Epilogue: native fp32 `atomicAdd` of the (already fp32, or converted)
+   partials - ~1e-7 order error instead of ~1e-3 fp16 rounding, and no CAS
+   loop. The zero-vs-add race is gone by construction.
+The reconstruct (size_m > MAX_Q_GEMM_ROWS) path is unchanged: it is a full
+non-split cuBLAS GEMM with beta=0. Backups: q_gemm.cu.bak-fp32acc,
+matrix_view.cuh.bak-fp32acc, and _C.abi3.so.bak-fp32acc in the venv.

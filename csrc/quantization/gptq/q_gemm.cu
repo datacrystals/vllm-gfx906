@@ -85,7 +85,7 @@ __forceinline__ __device__ half dot22_32_h(half2 (&dq)[16], const half* a_ptr,
 
 typedef void (*fp_gemm_half_q_half_gptq_kernel)(const half*, const uint32_t*,
                                                 const uint32_t*, const half*,
-                                                half*, const int, const int,
+                                                float*, const int, const int,
                                                 const int, const int,
                                                 const bool, const int*);
 
@@ -94,11 +94,11 @@ __launch_bounds__(BLOCK_KN_SIZE)
 __global__ void gemm_half_q_half_gptq_4bit_kernel(
     const half* __restrict__ a, const uint32_t* __restrict__ b_q_weight,
     const uint32_t* __restrict__ b_gptq_qzeros,
-    const half* __restrict__ b_gptq_scales, half* __restrict__ c,
+    const half* __restrict__ b_gptq_scales, float* __restrict__ c,
     const int size_m, const int size_n, const int size_k, const int groups,
     const bool use_v2_format, const int* __restrict__ b_q_perm) {
   MatrixView_half a_(a, size_m, size_k);
-  MatrixView_half_rw c_(c, size_m, size_n);
+  MatrixView_float_rw c_(c, size_m, size_n);
   MatrixView_q4_row b_gptq_qzeros_(b_gptq_qzeros, groups, size_n);
   MatrixView_half b_gptq_scales_(b_gptq_scales, groups, size_n);
 
@@ -133,13 +133,10 @@ __global__ void gemm_half_q_half_gptq_4bit_kernel(
     }
   }
 
-  // Zero output
+  // MIMO-QUALITY-FIX (2026-10-04): output zero-init moved to the launcher's
+  // fp32 accumulator; the old blockIdx.z==0 in-kernel zero RACED with other
+  // K-chunks' atomicAdds (a late zero wiped early partials).
   if (n >= size_n) return;
-
-  if (blockIdx.z == 0) {
-    for (int m = 0; m < m_count; m++)
-      *((uint64_t*)c_.item_ptr(offset_m + m, n)) = 0;
-  }
 
   __syncthreads();
 
@@ -218,14 +215,16 @@ __global__ void gemm_half_q_half_gptq_4bit_kernel(
     k += 32;
   }
 
+  // MIMO-QUALITY-FIX (2026-10-04): fp32 atomic combine. Was fp16 half2 CAS
+  // atomicAdd (no native fp16 atomics on gfx906 + racy K-chunk add order =>
+  // 0.05-0.25 nat T=0 logprob noise and near-tie token flips). block_c is
+  // already fp32 here; accumulate directly with native fp32 atomics.
   for (int m = 0; m < m_count; m++) {
-    half2* out = (half2*)c_.item_ptr(offset_m + m, n);
-    half2 result01 = __halves2half2(__float2half_rn(block_c[m][0]),
-                                    __float2half_rn(block_c[m][1]));
-    half2 result23 = __halves2half2(__float2half_rn(block_c[m][2]),
-                                    __float2half_rn(block_c[m][3]));
-    atomicAdd(out, result01);
-    atomicAdd(out + 1, result23);
+    float* out = c_.item_ptr(offset_m + m, n);
+    ::atomicAdd(out, block_c[m][0]);
+    ::atomicAdd(out + 1, block_c[m][1]);
+    ::atomicAdd(out + 2, block_c[m][2]);
+    ::atomicAdd(out + 3, block_c[m][3]);
   }
 }
 
@@ -233,11 +232,11 @@ template <bool first_block, int m_count>
 __global__ void gemm_half_q_half_gptq_2bit_kernel(
     const half* __restrict__ a, const uint32_t* __restrict__ b_q_weight,
     const uint32_t* __restrict__ b_gptq_qzeros,
-    const half* __restrict__ b_gptq_scales, half* __restrict__ c,
+    const half* __restrict__ b_gptq_scales, float* __restrict__ c,
     const int size_m, const int size_n, const int size_k, const int groups,
     const bool use_v2_format, const int* __restrict__ b_q_perm) {
   MatrixView_half a_(a, size_m, size_k);
-  MatrixView_half_rw c_(c, size_m, size_n);
+  MatrixView_float_rw c_(c, size_m, size_n);
   MatrixView_q2_row b_gptq_qzeros_(b_gptq_qzeros, groups, size_n);
   MatrixView_half b_gptq_scales_(b_gptq_scales, groups, size_n);
 
@@ -272,13 +271,10 @@ __global__ void gemm_half_q_half_gptq_2bit_kernel(
     }
   }
 
-  // Zero output
+  // MIMO-QUALITY-FIX (2026-10-04): output zero-init moved to the launcher's
+  // fp32 accumulator; the old blockIdx.z==0 in-kernel zero RACED with other
+  // K-chunks' atomicAdds (a late zero wiped early partials).
   if (n >= size_n) return;
-
-  if (blockIdx.z == 0) {
-    for (int m = 0; m < m_count; m++)
-      *((uint64_t*)c_.item_ptr(offset_m + m, n)) = 0;
-  }
 
   __syncthreads();
 
@@ -342,12 +338,14 @@ __global__ void gemm_half_q_half_gptq_2bit_kernel(
     k += 16;
   }
 
+  // MIMO-QUALITY-FIX (2026-10-04): fp32 atomic combine (was fp16 half2 CAS
+  // atomicAdd - nondeterministic K-chunk order + fp16 rounding).
   for (int m = 0; m < m_count; m++) {
-    half2* out = (half2*)c_.item_ptr(offset_m + m, n);
-    half2 result01 = __halves2half2(block_c[m][0], block_c[m][1]);
-    half2 result23 = __halves2half2(block_c[m][2], block_c[m][3]);
-    atomicAdd(out, result01);
-    atomicAdd(out + 1, result23);
+    float* out = c_.item_ptr(offset_m + m, n);
+    ::atomicAdd(out, __half2float(block_c[m][0]));
+    ::atomicAdd(out + 1, __half2float(block_c[m][1]));
+    ::atomicAdd(out + 2, __half2float(block_c[m][2]));
+    ::atomicAdd(out + 3, __half2float(block_c[m][3]));
   }
 }
 
@@ -356,11 +354,11 @@ __launch_bounds__(BLOCK_KN_SIZE)
 __global__ void gemm_half_q_half_gptq_3bit_kernel(
     const half* __restrict__ a, const uint32_t* __restrict__ b_q_weight,
     const uint32_t* __restrict__ b_gptq_qzeros,
-    const half* __restrict__ b_gptq_scales, half* __restrict__ c,
+    const half* __restrict__ b_gptq_scales, float* __restrict__ c,
     const int size_m, const int size_n, const int size_k, const int groups,
     const bool use_v2_format, const int* __restrict__ b_q_perm) {
   MatrixView_half a_(a, size_m, size_k);
-  MatrixView_half_rw c_(c, size_m, size_n);
+  MatrixView_float_rw c_(c, size_m, size_n);
   MatrixView_q3_row b_gptq_qzeros_(b_gptq_qzeros, groups, size_n);
   MatrixView_half b_gptq_scales_(b_gptq_scales, groups, size_n);
 
@@ -395,13 +393,10 @@ __global__ void gemm_half_q_half_gptq_3bit_kernel(
     }
   }
 
-  // Zero output
+  // MIMO-QUALITY-FIX (2026-10-04): output zero-init moved to the launcher's
+  // fp32 accumulator; the old blockIdx.z==0 in-kernel zero RACED with other
+  // K-chunks' atomicAdds (a late zero wiped early partials).
   if (n >= size_n) return;
-
-  if (blockIdx.z == 0) {
-    for (int m = 0; m < m_count; m++)
-      *((uint64_t*)c_.item_ptr(offset_m + m, n)) = 0;
-  }
 
   __syncthreads();
 
@@ -472,12 +467,14 @@ __global__ void gemm_half_q_half_gptq_3bit_kernel(
     k += 32;
   }
 
+  // MIMO-QUALITY-FIX (2026-10-04): fp32 atomic combine (was fp16 half2 CAS
+  // atomicAdd - nondeterministic K-chunk order + fp16 rounding).
   for (int m = 0; m < m_count; m++) {
-    half2* out = (half2*)c_.item_ptr(offset_m + m, n);
-    half2 result01 = __halves2half2(block_c[m][0], block_c[m][1]);
-    half2 result23 = __halves2half2(block_c[m][2], block_c[m][3]);
-    atomicAdd(out, result01);
-    atomicAdd(out + 1, result23);
+    float* out = c_.item_ptr(offset_m + m, n);
+    ::atomicAdd(out, __half2float(block_c[m][0]));
+    ::atomicAdd(out + 1, __half2float(block_c[m][1]));
+    ::atomicAdd(out + 2, __half2float(block_c[m][2]));
+    ::atomicAdd(out + 3, __half2float(block_c[m][3]));
   }
 }
 
@@ -486,11 +483,11 @@ __launch_bounds__(BLOCK_KN_SIZE)
 __global__ void gemm_half_q_half_gptq_8bit_kernel(
     const half* __restrict__ a, const uint32_t* __restrict__ b_q_weight,
     const uint32_t* __restrict__ b_gptq_qzeros,
-    const half* __restrict__ b_gptq_scales, half* __restrict__ c,
+    const half* __restrict__ b_gptq_scales, float* __restrict__ c,
     const int size_m, const int size_n, const int size_k, const int groups,
     const bool use_v2_format, const int* __restrict__ b_q_perm) {
   MatrixView_half a_(a, size_m, size_k);
-  MatrixView_half_rw c_(c, size_m, size_n);
+  MatrixView_float_rw c_(c, size_m, size_n);
   MatrixView_q8_row b_gptq_qzeros_(b_gptq_qzeros, groups, size_n);
   MatrixView_half b_gptq_scales_(b_gptq_scales, groups, size_n);
 
@@ -525,13 +522,10 @@ __global__ void gemm_half_q_half_gptq_8bit_kernel(
     }
   }
 
-  // Zero output
+  // MIMO-QUALITY-FIX (2026-10-04): output zero-init moved to the launcher's
+  // fp32 accumulator; the old blockIdx.z==0 in-kernel zero RACED with other
+  // K-chunks' atomicAdds (a late zero wiped early partials).
   if (n >= size_n) return;
-
-  if (blockIdx.z == 0) {
-    for (int m = 0; m < m_count; m++)
-      *((uint64_t*)c_.item_ptr(offset_m + m, n)) = 0;
-  }
 
   __syncthreads();
 
@@ -599,14 +593,14 @@ __global__ void gemm_half_q_half_gptq_8bit_kernel(
     k += 32;
   }
 
+  // MIMO-QUALITY-FIX (2026-10-04): fp32 atomic combine (was fp16 half2 CAS
+  // atomicAdd - nondeterministic K-chunk order + fp16 rounding).
   for (int m = 0; m < m_count; m++) {
-    half2* out = (half2*)c_.item_ptr(offset_m + m, n);
-    half2 result01 = __halves2half2(__float2half_rn(block_c[m][0]),
-                                    __float2half_rn(block_c[m][1]));
-    half2 result23 = __halves2half2(__float2half_rn(block_c[m][2]),
-                                    __float2half_rn(block_c[m][3]));
-    atomicAdd(out, result01);
-    atomicAdd(out + 1, result23);
+    float* out = c_.item_ptr(offset_m + m, n);
+    ::atomicAdd(out, block_c[m][0]);
+    ::atomicAdd(out + 1, block_c[m][1]);
+    ::atomicAdd(out + 2, block_c[m][2]);
+    ::atomicAdd(out + 3, block_c[m][3]);
   }
 }
 
@@ -649,7 +643,7 @@ fp_gemm_half_q_half_gptq_kernel pick_gemm_half_q_half_gptq_kernel(
 void gemm_half_q_half_cuda_part(const half* a, const uint32_t* b_q_weight,
                                 const uint32_t* b_gptq_qzeros,
                                 const half* b_gptq_scales, const int* b_q_perm,
-                                half* c, int size_m, int size_n, int size_k,
+                                float* c, int size_m, int size_n, int size_k,
                                 int m_count, int groups, bool use_v2_format,
                                 int bit) {
   dim3 blockDim, gridDim;
@@ -1100,7 +1094,7 @@ void reconstruct_exllama(const uint32_t* b_q_weight,
 
 __global__ void gemm_half_q_half_alt_4bit_kernel(
     const half2* __restrict__ vec, const uint32_t* __restrict__ mat,
-    half* __restrict__ mul, const half* __restrict__ scales,
+    float* __restrict__ mul, const half* __restrict__ scales,
     const uint32_t* __restrict__ zeros, const int* __restrict__ g_idx,
     int batch, int height, int width, bool use_v2_format) {
   int zero_width = width / 8;
@@ -1132,9 +1126,8 @@ __global__ void gemm_half_q_half_alt_4bit_kernel(
         __halves2half2(__int2half_rn(val & 0xF), __int2half_rn(val >> 4));
   }
 
-  if (blockIdx.z == 0) {
-    for (int m = 0; m < b_end; m++) mul[(b + m) * width + w] = __int2half_rn(0);
-  }
+  // MIMO-QUALITY-FIX (2026-10-04): output zero-init moved to the launcher's
+  // fp32 accumulator (kills the zero-vs-add race across K-chunks).
   __syncthreads();
 
   int i = width * h + w;
@@ -1142,7 +1135,7 @@ __global__ void gemm_half_q_half_alt_4bit_kernel(
   int k = 0;
   int z_w = w / 8;
   int z_mod = (w % 8) * 4;
-  half res[BLOCK_M_SIZE_MAX] = {};
+  float res[BLOCK_M_SIZE_MAX] = {};
 
   unsigned int tmp;
   while (k < h_end) {
@@ -1180,19 +1173,21 @@ __global__ void gemm_half_q_half_alt_4bit_kernel(
       res2 = __hfma2(
           __hfma2(deq2[(tmp >> 24) & 0xff][off], scales_tmp[3], zeros_tmp[3]),
           blockvec[m][k + 3], res2);
-      res[m] = __hadd(res[m], __hadd(res2.x, res2.y));
+      res[m] += __half2float(__hadd(res2.x, res2.y));
     }
     i += width;
     k += 4;
   }
+  // MIMO-QUALITY-FIX (2026-10-04): fp32 atomic combine (was fp16 CAS
+  // atomicAdd on a half accumulator).
   for (int m = 0; m < b_end; m++) {
-    atomicAdd(&mul[(b + m) * width + w], res[m]);
+    ::atomicAdd(&mul[(b + m) * width + w], res[m]);
   }
 }
 
 __global__ void gemm_half_q_half_alt_8bit_kernel(
     const half2* __restrict__ vec, const uint32_t* __restrict__ mat,
-    half* __restrict__ mul, const half* __restrict__ scales,
+    float* __restrict__ mul, const half* __restrict__ scales,
     const uint32_t* __restrict__ zeros, const int* __restrict__ g_idx,
     int batch, int height, int width, bool use_v2_format) {
   int zero_width = width / 4;
@@ -1216,9 +1211,8 @@ __global__ void gemm_half_q_half_alt_8bit_kernel(
     }
   }
 
-  if (blockIdx.z == 0) {
-    for (int m = 0; m < b_end; m++) mul[(b + m) * width + w] = __int2half_rn(0);
-  }
+  // MIMO-QUALITY-FIX (2026-10-04): output zero-init moved to the launcher's
+  // fp32 accumulator (kills the zero-vs-add race across K-chunks).
   __syncthreads();
 
   int i = width * h + w;
@@ -1226,7 +1220,7 @@ __global__ void gemm_half_q_half_alt_8bit_kernel(
   int k = 0;
   int z_w = w / 4;
   int z_mod = (w % 4) * 8;
-  half res[BLOCK_M_SIZE_MAX] = {};
+  float res[BLOCK_M_SIZE_MAX] = {};
 
   unsigned int tmp;
   while (k < h_end) {
@@ -1260,20 +1254,22 @@ __global__ void gemm_half_q_half_alt_8bit_kernel(
                                  __int2half_rn((tmp >> 24) & 0xFF));
       res2 = __hfma2(__hfma2(v34, scales_tmp[1], zeros_tmp[1]),
                      blockvec[m][k + 1], res2);
-      res[m] = __hadd(res[m], __hadd(res2.x, res2.y));
+      res[m] += __half2float(__hadd(res2.x, res2.y));
     }
     i += width;
     k += 2;
   }
+  // MIMO-QUALITY-FIX (2026-10-04): fp32 atomic combine (was fp16 CAS
+  // atomicAdd on a half accumulator).
   for (int m = 0; m < b_end; m++) {
-    atomicAdd(&mul[(b + m) * width + w], res[m]);
+    ::atomicAdd(&mul[(b + m) * width + w], res[m]);
   }
 }
 
 void gemm_half_q_half_alt(const half* a, const uint32_t* b_q_weight,
                           const uint32_t* b_gptq_qzeros,
                           const half* b_gptq_scales, const int* b_g_idx,
-                          half* c, int size_m, int size_n, int size_k,
+                          float* c, int size_m, int size_n, int size_k,
                           bool use_v2_format, int bit) {
   dim3 blockDim, gridDim;
   blockDim.x = BLOCK_KN_SIZE;
@@ -1433,27 +1429,46 @@ void gemm_half_q_half_cuda(cublasHandle_t cublas_handle, const half* a,
     const half beta = __float2half(0.0f);
     cublasHgemm(cublas_handle, CUBLAS_OP_N, CUBLAS_OP_N, size_n, size_m, size_k,
                 &alpha, temp_dq, size_n, a, size_k, &beta, c, size_n);
-  } else if (use_exllama) {
-    // Quantized matmul
-    int max_chunks = size_m / BLOCK_M_SIZE_MAX;
-    int last_chunk = max_chunks * BLOCK_M_SIZE_MAX;
-    int last_chunk_size = size_m - last_chunk;
-
-    if (max_chunks) {
-      gemm_half_q_half_cuda_part(a, b_q_weight, b_gptq_qzeros, b_gptq_scales,
-                                 b_g_idx, c, last_chunk, size_n, size_k,
-                                 BLOCK_M_SIZE_MAX, groups, use_v2_format, bit);
-    }
-
-    if (last_chunk_size) {
-      gemm_half_q_half_cuda_part(
-          a + last_chunk * size_k, b_q_weight, b_gptq_qzeros, b_gptq_scales,
-          b_g_idx, c + last_chunk * size_n, last_chunk_size, size_n, size_k,
-          last_chunk_size, groups, use_v2_format, bit);
-    }
   } else {
-    gemm_half_q_half_alt(a, b_q_weight, b_gptq_qzeros, b_gptq_scales, b_g_idx,
-                         c, size_m, size_n, size_k, use_v2_format, bit);
+    // MIMO-QUALITY-FIX (2026-10-04): quantized matmul accumulates K-chunk
+    // partials in an fp32 buffer with native fp32 atomics (was fp16 CAS
+    // atomicAdd: nondeterministic add order + per-add fp16 rounding, plus a
+    // zero-vs-add race from the in-kernel blockIdx.z==0 zero-init). Zero-init
+    // is the at::zeros below - it cannot race with the adds. The accumulator
+    // is folded into the caller's fp16 output exactly once at the end.
+    auto c_acc = at::zeros(
+        {size_m, size_n},
+        at::TensorOptions().dtype(at::kFloat).device(at::kCUDA));
+    float* acc = c_acc.data_ptr<float>();
+
+    if (use_exllama) {
+      // Quantized matmul
+      int max_chunks = size_m / BLOCK_M_SIZE_MAX;
+      int last_chunk = max_chunks * BLOCK_M_SIZE_MAX;
+      int last_chunk_size = size_m - last_chunk;
+
+      if (max_chunks) {
+        gemm_half_q_half_cuda_part(a, b_q_weight, b_gptq_qzeros, b_gptq_scales,
+                                   b_g_idx, acc, last_chunk, size_n, size_k,
+                                   BLOCK_M_SIZE_MAX, groups, use_v2_format,
+                                   bit);
+      }
+
+      if (last_chunk_size) {
+        gemm_half_q_half_cuda_part(
+            a + last_chunk * size_k, b_q_weight, b_gptq_qzeros, b_gptq_scales,
+            b_g_idx, acc + last_chunk * size_n, last_chunk_size, size_n, size_k,
+            last_chunk_size, groups, use_v2_format, bit);
+      }
+    } else {
+      gemm_half_q_half_alt(a, b_q_weight, b_gptq_qzeros, b_gptq_scales, b_g_idx,
+                           acc, size_m, size_n, size_k, use_v2_format, bit);
+    }
+
+    auto c_folded = c_acc.to(at::kHalf);
+    const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+    cudaMemcpyAsync(c, c_folded.data_ptr(), sizeof(half) * size_m * size_n,
+                    cudaMemcpyDeviceToDevice, stream);
   }
 }
 

@@ -106,6 +106,27 @@ class MatrixView_half_rw {
   }
 };
 
+// MIMO-QUALITY-FIX (2026-10-04): fp32 read-write view for the quantized GEMM
+// output accumulator (q_gemm.cu kernels atomicAdd partials in fp32; the
+// launcher folds the accumulator into the fp16 output once).
+class MatrixView_float_rw {
+ public:
+  float* data;
+  const int height;
+  const int width;
+
+  __device__ __forceinline__ MatrixView_float_rw(float* data, const int height,
+                                                 const int width)
+      : data(data), height(height), width(width) {}
+
+  __device__ __forceinline__ float* item_ptr(int row, int column) {
+    return &data[row * width + column];
+  }
+  __device__ __forceinline__ void set(int row, int column, float value) {
+    data[row * width + column] = value;
+  }
+};
+
 class MatrixView_q4_row {
  public:
   const uint32_t* data;
