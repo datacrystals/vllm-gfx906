@@ -16,6 +16,6 @@ tr '\0' ' ' < /proc/$(pgrep -f "[b]in/vllm [s]erve" | head -1)/cmdline | grep -o
 
 for SIZE in 20000 60000; do
     echo "--- size=$SIZE ---" | tee -a "$OUT"
-    timeout 600 "$P" -u "$B" prefill --port "$V" --sizes "$SIZE" --max-tokens 8 --skip-first 2>&1 | tee -a "$OUT"
+    timeout 1500 "$P" -u "$B" prefill --port "$V" --sizes "$SIZE" --max-tokens 8 --skip-first 2>&1 | tee -a "$OUT"
 done
 echo "=== sweep done $(date -u +%F_%T) ===" | tee -a "$OUT"
