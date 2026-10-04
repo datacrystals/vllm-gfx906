@@ -704,3 +704,44 @@ with drift <= ~1e-3, behavior probe stable PASS.)
   wedge-prone (WEDGE rule); restarts tonight used `sudo ipmitool chassis power
   reset` per the port plan. Two concurrent TP8 boots race and crash each other
   (matches the 2026-09-11 fleet_free lesson) - serialize boots with a lock.
+
+### Follow-up pin (same night): dominant residual source = dense int4 GEMM kernel
+After the moe_wna16 fp32-atomic fix (verified live in the loaded _moe_C.abi3.so),
+nondeterminism is UNCHANGED (hammer2: 7/8 distinct, 0.35 nat drift; behavior
+probe variant=1 still flaky PASS/PASS/FAIL; qprobe dot/repeat still diverges at
+token ~6). The residual source is the same bug class in the DENSE int4 GEMM:
+csrc/quantization/gptq/q_gemm.cu (exllama/GPTQ kernels used for every quantized
+Linear - qkv/o/gate/up/down, all 48 layers, prefill AND decode):
+* gemm_half_q_half_gptq_{2,3,4,8}bit_kernel epilogue: `atomicAdd(half2*)` of
+  K-chunk partials into the output (split-K, ~size_k/BLOCK_KN_SIZE contributors
+  in racy order).
+* WORSE: the "Zero output" step (`if (blockIdx.z == 0) *(uint64_t*)c_... = 0`)
+  RACES with other K-chunks' atomicAdds - a late zero wipes early partials.
+* gemm_half_q_half_alt_{4,8}bit_kernel (non-exllama path): same
+  `atomicAdd(&mul[...], res[m])` pattern (and fp16 `res[]` accumulation).
+
+Why this dominates: targets ["Linear"] int4 g32 ASYM (config.json
+quantization_config) = every dense projection is int4 -> these kernels run in
+every layer x every token, unlike moe_wna16 (experts only).
+
+Patch design (same as moe_wna16 fix, ready to implement):
+1. Thread a float* accumulator buffer through the kernel signatures /
+   MatrixView (replace MatrixView_half_rw c_ for the write target).
+2. Move the zero-init to the launcher (kills the zero-vs-add race).
+3. Epilogue: `atomicAdd(&acc[...], (float)res)` (native fp32 atomic, fixed ~1e-7
+   order error), then `c.copy_(acc.to(kFloat16))`.
+4. Same for the alt family. Rebuild the quantization extension, deploy to
+   vllm_dsv4_env site-packages (two-tree rule for .py; .so single copy + bak).
+5. Re-verify with tools/mimo_nondet_hammer2.py (target: 1/8 distinct, drift
+   <=1e-3) and 3x tools/mimo_behavior_probe.py 9700 8000 1 (target: 3/3 PASS).
+Verification after the moe fix (prod config, logs /data/tmp/*_afterfix.*):
+behavior variant=1 PASS/PASS/FAIL (was FAIL/PASS/FAIL), hammer 7/8 distinct
+max drift 0.35 nat (was 8/8, 0.24-0.46) - i.e. moe_wna16 fix is a real
+determinism hardening but NOT the dominant source; q_gemm.cu is.
+
+Exonerated (do not re-litigate): prefix cache (decisive noprefix boot),
+incremental detokenizer (decode(ids) round-trip exact), chat template,
+VLLM_MIMO_GATE_FP16_GEMM (A/B 8/8 both ways), moe_sum (fixed-order per-element
+loop), triton attention reduce_segments (deterministic tl.sum/tl.max over
+segment partials; no atomics in triton_prefill_attention.py /
+triton_unified_attention.py).
