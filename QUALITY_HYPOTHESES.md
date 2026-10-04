@@ -125,3 +125,21 @@ sampling, which users experience as normal variability instead of
 corrupted output. This is the shippable answer alongside the Bug A cache
 fix. Further kernel work (attention path) is the follow-up if full
 determinism is ever required.
+
+## BUG B ROOT SOURCE FOUND: q_gemm.cu split-K race (agent-20 audit)
+After the moe_wna16 fp32-atomic fix (verified live): hammer 7/8 (0.35 nat),
+behavior variant=1 PASS/PASS/FAIL (was FAIL/PASS/FAIL) -- real but partial.
+DOMINANT RESIDUAL: csrc/quantization/gptq/q_gemm.cu (dense INT4 GEMM,
+every quantized Linear in all 48 layers, prefill AND decode):
+1. gemm_half_q_half_gptq_{2,3,4,8}bit epilogue atomicAdd(half2*) of
+   K-chunk partials in racy order (split-K).
+2. CORRECTNESS BUG: the "Zero output" step races with other K-chunks'
+   atomicAdds -- a late zero wipes early partials (wrong results, not just
+   noise).
+3. alt_{4,8}bit family: same atomicAdd pattern.
+PATCH DESIGN (ready): fp32 accumulator buffer threaded through the kernel,
+zero-init moved to the launcher (kills the zero-vs-add race), epilogue
+fp32 atomicAdd, final cast copy to fp16. Target: hammer 1/8, drift <=1e-3.
+EXONERATED (do not re-litigate): prefix cache FOR BUG B (note: Bug A cache
+KV mismatch stands separately), detokenizer, chat template, gate GEMM,
+moe_sum, triton attention reduce_segments.
