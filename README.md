@@ -5,56 +5,74 @@ The same 8x MI50 box now also serves **MiMo-V2.6-Flash-INT4**
 
 | Metric | Number | Notes |
 |---|---|---|
-| Needles | **24k GREEN (post-fix)**; 65k/130k GREEN pre-fix | 24k re-run after the gate fp16 change; 65k/130k predate it |
-| 150k agent behavior | **PASS** (MIMO-150K-V3B) | 5/5 facts, 3/3 destructive traps refused @ 177k tok |
-| Decode | **28.07 tok/s** (was 12.2) | target 20 MET. Win = router-gate fp16 skinny GEMM |
-| Concurrency @256k | **3.16x capacity / 3-way live** | 5.6 GiB KV pool; 3 sessions resident simultaneously |
-| Prefill | **142-156 tok/s** (untuned) | tuning pass in progress (batched-tokens sweep) |
-| Modalities | **audio + image + video all work** | vision outputs not in this checkpoint (no gen head) |
+| Decode (1 user) | **24.5 tok/s** | target 20 MET; was 28.07 pre-quality-fix -- the ~13% delta is the fp32-atomic correctness tax (proven NBN-independent: 24.37 @2048 vs 24.68 @16384, 5 reps each) |
+| Needles | **24k / 65k / 130k GREEN** | 24k re-run post-numerics-fix; 65k/130k measured pre-fix (130k = 102.9k tok, 803s) |
+| 150k agent behavior | **PASS** (MIMO-150K-V3B) | 5/5 facts, 3/3 traps refused @ 177k tok |
+| Concurrency @256k | **3.18x ceiling, 3 resident verified** | needs KV=6.25GiB/GPU + NBN=8192 + LONG_PREFILL_THRESHOLD=512; 1.57x at the 3.5GiB default; gates table in MIMO_PORT_PLAN |
+| Prefill | **205 tok/s @20k / 184 tok/s @60k** | NBN sweep 2048->16384 (154->205); knee at 8192+; next lever is kernel-level (profile-guided; GLM's sparse-MLA union path does not transfer to this arch) |
+| Modalities | **audio + image + video all work** | vision outputs not in this checkpoint |
 
-Decode story: the gfx906/GLM53 GEMV hatches (int4 dense, wna16 MoE,
-LLMM1) were wired and measured -- all NEGATIVE at MiMo shapes (wna16 GEMV
-5.7-9x slower than the moe_wna16 CUDA kernel; gemv_m 3-6x slower than
-LLMM1), so they ship defaulted OFF. The real decode hog was the MoE router
-gate: a bf16 nn.Linear hitting a Tensile GEMM at 880 us/call x47 =
-41 ms/step of an 81 ms step (prof_patch trace). Routing it through
-rocm_unquantized_gemm in fp16 (VLLM_MIMO_GATE_FP16_GEMV=1, logits cast
-back to gate dtype) took that to ~1 ms/step -> 28.07 tok/s.
+Decode story (the good kind of surprise): profiling showed a single bf16
+router-gate GEMM eating 41.4 ms of an 81 ms step (51%!) -- Tensile's bf16
+M=1 path is brutal on gfx906. Rerouting it to the fp16 skinny-GEMM path
+cut it to ~1 ms. The hand-wired GEMV kernels were measured and left OFF.
 
-Known limits / ops notes (2026-10-03 perf campaign):
+Port war stories (full writeup in MIMO_PORT_PLAN.md):
 
-- **Concurrency tuning**: `--max-num-batched-tokens 2048` gives 3.16x
-  max-concurrency at 262,144 tokens (5.6 GiB KV pool); raising the budget
-  to 8192 drops it to 2.85x (bigger per-session reservation). Concurrent
-  long prefills need `--long-prefill-token-threshold` < budget/n (default
-  0 serializes: one prefill owns the whole budget per step).
-- **KV pool knob**: `KV_CACHE_BYTES` env on run_mimo_v2_6_omni.sh
-  (3.5 GiB default = 1.98x, 5.6 GiB = 3.16x).
-- **Router-gate fix env**: `VLLM_MIMO_GATE_FP16_GEMV=1` (default on).
-- **Teardown rule** (3 hard-wedged SIGTERMs -> power resets on this box):
-  signal the server only with an empty queue and >=2 GB free VRAM, else
-  `sudo ipmitool chassis power reset`. Close prof_patch windows before
-  restarts. After any reset: delete venv *.pyc, `systemctl --user stop
-  glm53.service` (it auto-respawns and grabs :9700), then fleet_free gate.
-- **`sync` before power resets** (a run-script edit was lost to dirty-page
-  eviction once).
-- Bare `import vllm._custom_ops` as the first vllm import segfaults in
-  standalone processes on this box (import models.mimo_v2 first).
+- **Fused-QKV word-salad monster**: checkpoint stores fused qkv_proj
+  pre-sharded for TP4 with per-chunk 128x128 block scales; naive flat reads
+  scramble Q/K/V. All three implementations were identically garbage until
+  the per-chunk-padded regroup fix.
+- **flash-attn Triton-AMD silently ignores `window_size`** -- the upstream
+  flash_attn package drops the window, so every ViT SWA block silently ran
+  full attention. Fork-wide hazard for package users; MiMo ViT now uses an
+  explicit SDPA window mask + sinks. (The LM is unaffected: it runs
+  vLLM's own TritonAttentionBackend, VLLM_USE_TRITON_FLASH_ATTN=1, which
+  honors window + sinks.)
+- **fp16 overflows the ViT** (block27 absmax ~5e5) -> NaN image features ->
+  "!!!!" walls. Tower now runs BF16. Post-fix tower matches HF at cos 0.9987.
+- **Reasoning-parser leak**: GLM53-PORT split override never stripped the
+  opening think marker (base class does via partition) -> leaked into
+  reasoning_content. Fixed with stream-safe head handling.
+- **"Flaky boot segfault" was never a segfault**: silent engine-parent death
+  at post-load (dmesg clean). Suspect: a debug checksum block spiking 8
+  workers at that transition (now gated behind VLLM_MIMO_AUDIT=1).
+- **Machine freezes**: amdgpu SVM/KFD workqueues (svm_range_restore_work)
+  hog CPUs under pinned-VRAM churn -> hard freeze. Our
+  `expandable_segments` config is SVM-backed and is the first A/B target.
+  See CRASH_FORENSICS.md.
 
-Port war stories worth knowing (full writeup in MIMO_PORT_PLAN.md):
+Quality investigation outcome (measured): ONE root cause for both
+symptoms -- T=0 forward-pass nondeterminism from fp16 atomic split-K
+reductions in the quantized GEMM kernels (no native fp16 atomics on gfx906;
+partials land in racy order, and the GPTQ kernel's zero-init RACES the
+accumulation). Near-tie argmax flips every ~10-40 tokens: a flip onto
+punctuation = the stray "."; a cascading flip = the multi-turn "doesn't
+know what it is doing" (behavior probe: same prompt, 3 runs -> FAIL/PASS/
+FAIL; the failing run forgot 4/5 embedded facts). EARLIER "prefix-cache
+corruption" reading is RETRACTED -- the warm/cold splits were the noise
+floor; cache-off runs are warm==cold identical (5/5) and the SWA block
+accounting audits clean.
+Status: BOTH fixes shipped and verified loaded -- moe_wna16 combine
+(fp32 atomicAdd shadow buffer, ~1e4 noise reduction; b9f7226387) and the
+dominant site, csrc/quantization/gptq/q_gemm.cu dense INT4 GEMM (all 48
+layers, every token): fp32 accumulator + launcher-side zero-init +
+`::atomicAdd` (the compat.cuh half-atomics hide the float builtin inside
+`namespace vllm::gptq`; 8c002f93cc, f1693f36f3). Residual T=0 noise is
+hipBLAS/Tensile split-K (hammer stayed 8/8 distinct); one-boot
+discriminator documented: VLLM_ROCM_USE_SKINNY_GEMM=1 + hammer.
+Shippable mitigation: temperature >= 0.1 turns the tie-flips into
+intentional sampling. Full evidence in QUALITY_HYPOTHESES.md.
+USER-VERIFIED (2026-10-04): at T=1.0 top_p=1.0 the residual noise
+(~1-2 nat logit perturbation) surfaced as frankenword bursts
+("Gunmedibaseketing"); T 0.6-0.8 + top_p 0.9-0.95 + min_p ~0.05
+eliminated ALL observed artifacts in live use. Recommended client config.
 
-- **Fused-QKV word-salad monster**: the checkpoint stores each layer's fused
-  qkv_proj pre-sharded for TP4 with per-chunk 128x128 block scales; a naive
-  flat `[q|k|v]` read scrambles Q/K/V into salad. Fix = per-chunk-padded
-  scale rows + row regroup at dequant. All three implementations (vLLM, HF
-  remote-code, pure-torch ref) were identically garbage until this.
-- **flash-attn Triton-AMD silently ignores `window_size`** -- every
-  sliding-window block silently runs full attention. Fork-wide hazard; the
-  MiMo ViT's 24 SWA blocks now use an explicit SDPA window mask + sinks.
-- **fp16 overflows the ViT** (block27 absmax ~5e5 > 65504) -> NaN image
-  features -> "!!!!" walls. Tower now runs BF16.
-- Serving preprocessor needed CLIP stats (not ImageNet); merger needs
-  LayerNorm (not RMSNorm). Post-fix tower matches HF at cos 0.9987.
+Open items (honest): prefill NBN sweep DONE (154->205 tok/s, table in
+MIMO_PORT_PLAN.md); decode cost of the fp32-atomic correctness fixes
+MEASURED (28.07 pre-fix -> 24.4-24.7 post-fix, NBN-independent);
+RAM offload for parked sessions unverified (user-deprioritized);
+residual T=0 nondet under greedy (mitigate with temperature >= 0.1).
 
 ---
 

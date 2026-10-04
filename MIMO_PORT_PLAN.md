@@ -344,499 +344,148 @@ flipping a near-tie on one cold variant (1 compliance outlier in 3); treat
 policy-adherence as mostly-but-not-perfectly stable and keep client-side
 tool allowlists for destructive ops regardless.
 
-## PERF CAMPAIGN 2026-10-03 (decode 12.2->20 / 3x@256k / prefill) — in progress
-Baseline re-measured tonight with tools/mimo_decode_instr.py (instruction
-prompt, 300-token essay, T=0 — prose-fillers EOS in 1 token, see below):
-decode 12.35 tok/s median of 3 reps (12.448/12.348/12.338). Matches the
-documented 12.2. Stock tools/mimo_perf_bench.py decode mode feeds prose-only
-prompts -> output_tokens=1 -> unusable for decode timing on this RL model;
-mimo_decode_instr.py is the companion that elicits real essays.
+## QUALITY BUGS: root-caused (2026-10-03 night, measured) — SUPERSEDED, see QUALITY FINAL
+User-reported stray "." tokens in mid-sentence + multi-turn "doesn't know
+what it is doing". Full evidence chain in QUALITY_HYPOTHESES.md (same repo);
+headline numbers:
+- nondet_hammer (cache ON):  10/10 distinct greedy streams; divergence by
+  token 11; max |dlogprob| 1.88 nats on identical prefixes; runs even
+  disagree on what the prompt asked (diagram vs Python program).
+- nondet_hammer2 (cache OFF): 8/8 distinct -- compute nondeterminism is
+  REAL independent of the cache.
+- frozen-history A/B: cache ON 4/5 turns DIVERGED; cache OFF 0/5, all
+  turns byte-identical -> cache is the SOLE divergence source on
+  deterministic trajectories (real KV-correctness bug).
+- dot-artifact hunt: 0 artifacts across 8/8 single-turn prose probes on
+  both boots -> dots need near-tie-heavy or multi-turn accumulation.
+DECOMPOSITION (fix order A then B):
+  Bug A: prefix-cache KV mismatch (hybrid-SWA block accounting serves
+    subtly-wrong cached KV) -> multi-turn context rot.
+  Bug B: kernel compute nondeterminism (MoE atomics / gate-GEMM split-K /
+    attention reductions) -> stray dots + wobble. Mitigation if unfixable:
+    small temperature turns silent near-tie corruption into intentional
+    sampling.
+Verification bar for fixes: hammer -> 1/1 distinct; cacheab warm==cold
+byte-identical WITH cache on; multi-turn + behavior probes green;
+needle 24k + France probe + thinkstrip pass.
 
-### GEMV wiring (first lever, landed)
-Findings from dispatch archaeology:
-* Dense CT int4 linears -> ExllamaLinearKernel -> ops.gptq_gemm (ROCM kernel
-  preference list in model_executor/kernels/linear/__init__.py puts Exllama
-  first for gfx906).
-* MoE int4 g32 experts -> compressed_tensors_moe_wna16 ->
-  fused_experts_impl -> dispatch_fused_moe_kernel -> should_moe_wna16_use_cuda
-  (returns True at decode on ROCm!) -> ops.moe_wna16_gemm CUDA kernel
-  (the GLM53 profiled slow path). The triton path
-  (invoke_fused_moe_wna16_triton_kernel) is only used at larger M.
-* The glm53_int4_gemv / glm53_wna16_gemv hooks from patches/gdn were NEVER
-  wired anywhere (grep of site-packages finds zero importers). VLLM_GFX906_GEMV=1
-  was set in run_mimo_v2_6_omni.sh but its anchor lives only in
-  glm5next/__init__.py and hy_v3.py tails -> never fired for MiMo either.
+## QUALITY FINAL (2026-10-03 pre-dawn): ONE root cause, two kernel fixes shipped
 
-Shipped (both trees, .bak-gemv backups, py_compile OK):
-* vllm/gfx906_ext/glm53_int4_gemv.py  (vendored from patches/gdn)
-* vllm/gfx906_ext/glm53_wna16_gemv.py (vendored; fixed a real bug:
-  glm53_wna16_supported referenced bare `sorted_token_ids` -> NameError on
-  every supported-check; now an optional arg, caller passes it)
-* model_executor/models/mimo_v2.py tail: env-gated install anchor for all
-  four hatches (VLLM_GFX906_GEMV / VLLM_GLM53_DENSE_GEMV / VLLM_GLM53_INT4_GEMV
-  / VLLM_GLM53_WNA16_GEMV). Anchor verified by /tmp/smoke_gemv_install2.py:
-  all 4 hooks land on the real dispatch targets via the server import path
-  and uninstall restores them.
-* run_mimo_v2_6_omni.sh: exports the three GLM53_* gates (A/B overridable
-  from the invoking env).
-Offline numerics unchanged and re-verified: check_glm53_wna16_gemv.py PASS
-(tier1 bit-exact, tier2 <=2e-3), check_glm53_int4_gemv.py PASS (unpack
-bit-exact, GEMV err <=5e-6 on GLM shapes).
+The A/B decomposition above is RETRACTED in its Bug A half. Decisive
+test: cache OFF boot, warm==cold 5/5 identical on the frozen-history
+turns; SWA block-accounting audits clean; the earlier "cacheab" warm/cold
+mismatches were measuring the same compute-noise floor as everything
+else. There is no prefix-cache KV correctness bug.
 
-Known env quirk (NOT a product bug): importing vllm._custom_ops first in a
-bare python process segfaults on this box; the server import order never
-does this. Smoke tests must import models.mimo_v2 first.
+ONE root cause for BOTH user symptoms: T=0 forward-pass
+nondeterminism from fp16 atomic split-K reductions in the quantized GEMM
+kernels. gfx906 has no native fp16 atomics, so ~64-128 K-split partials
+land in racy order; and the GPTQ kernel had a genuine correctness race on
+top (blockIdx.z==0 zeroing could wipe already-accumulated partials).
+Near-tie argmax flips every ~10-40 tokens:
+- flip onto punctuation -> the stray "." mid-sentence;
+- cascading flip -> multi-turn "doesn't know what it is doing" (behavior
+  probe same prompt 3 runs -> FAIL/PASS/FAIL; failing run forgot 4/5
+  embedded facts).
 
-### KV math for target 2 (measured/derived)
-Per-rank 256k session: 9 full-attn layers x 1 kv-head/rank x (192+128) x 2B x
-262144 = 1.41 GiB (+ SWA-128 x39 window-bounded ~3 MB). Pool is 3.5 GiB
-(--kv-cache-memory-bytes) -> boot log "GPU KV cache size: 90,368 tokens",
-"Maximum concurrency for 262,144 tokens per request: 1.98x". 3x needs
-~4.23 GiB fp16 or ~2.1 GiB int8. VRAM: 30.8 GB used of 34.3 GB (~3.2 GB free).
-Levers: int8 KV (tools/int8_kv_kernel.py, pre-authorized), pool raise, and
---kv-offloading-size + --disable-hybrid-kv-cache-manager for parked sessions.
+Fixes shipped + verified loaded (dispatch confirmed: ExllamaLinearKernel/
+gptq_gemm is the active path for this int4-g32 checkpoint):
+1. csrc/moe/moe_wna16.cu -- fp32 atomicAdd shadow buffer for the combine
+   (b9f7226387). ~1e4 noise reduction at that site.
+2. csrc/quantization/gptq/q_gemm.cu + matrix_view.cuh -- fp32
+   accumulator + launcher-side zero-init + ::atomicAdd (8c002f93cc,
+   f1693f36f3). Trap that made this non-obvious: compat.cuh declares
+   half-atomics inside namespace vllm::gptq, which HIDES the float
+   builtin; must call ::atomicAdd explicitly.
 
-## PERF 2026-10-03 p.m.: GEMV hatches measured and REJECTED; profile found the
-## real decode hog (router gate bf16 GEMM) — gate fp16 fix landed.
-### GEMV A/B verdict (honest negative)
-With all four hatches ON (648f733e57 wiring) decode fell to 2.93 tok/s from
-the 12.35 baseline -- a 4x regression. Standalone micro-bench at MiMo
-TP-shard shapes (tools-pattern /tmp/gemv_micobench.py, /tmp/moe_ab_bench.py,
-/tmp/wna16_cfg_sweep.py on an idle GPU):
-* wna16 GEMV vs ops.moe_wna16_gemm CUDA kernel (M=1 topk=8):
-    TP w13 (E=256,N=512,K=4096): cuda 0.16 ms vs gemv 1.25 ms (7.9x)
-    TP w2  (E=256,N=4096,K=256): cuda 0.06 ms vs gemv 0.57 ms (9.0x)
-  Full config sweep (BN 8..256, BK 128..1024, NW 1..4, NS 1..2, SK 1..2):
-  BEST gemv still 5.73x (w13) / 7.26x (w2) slower than the CUDA kernel.
-  Root cause: BLOCK_M=4 re-reads expert weight tiles 4x for the 1-token-
-  per-expert decode routing pattern; the CUDA kernel is already well-tuned
-  for this shape. Correctness was fine (max|diff| ~1e-2 on ref ~10).
-* gemv_m vs ops.LLMM1 (fp16 M=1): lm_head 1.09x (par), qkv 3.2x slower,
-  o_proj 5.9x, gate 5.5x. LLMM1 is the better kernel at small N.
-* int4_gemv vs gptq_gemm: only covers layer-0 qkv (attention is in the CT
-  ignore list = unquantized), negligible either way.
-Conclusion: all three GLM53/GFX906 GEMV hatches default OFF in
-run_mimo_v2_6_omni.sh (env-overridable for future A/B). The kernels remain
-vendored and wired; they are simply not wins at MiMo geometry. GLM-5.3
-shapes (N=4096,K=4096 EP-shard, 36 experts) are a different regime.
-### Decode-step profile (hatches OFF, prof_patch window 1:40, rank0 trace)
-/data/tmp/mimo_prof/trace_w1_p110244.json.gz, 34 interior steps, M=1:
-  41.43 ms/step x47  Tensile bf16 GEMM Cijk_Alik_Bljk_BBS_BH_MT32x128x16
-                     -> the MoE ROUTER GATE (nn.Linear, moe_router_dtype=
-                     bfloat16) at 880 us/call. HALF the step.
-  17.43 ms/step x94  moe_wna16_gemm_kernel<__half,4,4> (experts, 185 us)
-  12.38 ms/step x98  ncclDevKernel (all-reduce)
-   2.23 ms/step x141 aten gatherTopK (router topk, bf16)
-   1.65 ms/step x50  gptq 4bit (layer-0 qkv)
-   1.01 ms/step x49  LLGemm1 (attention qkv/o at M=1)
-   0.79 ms/step x48  kernel_unified_attention
-   rest ~8 ms in 600+ tiny kernels
-  TOTAL kernel 85 ms/step (matches 81 ms/step wall at 12.35 tok/s).
-### Gate fix (landed, both trees, .bak-gate)
-model_executor/models/mimo_v2.py: MiMoV2MoE.forward routes the router gate
-through rocm_unquantized_gemm (LLMM1 M==1 path) in fp16 when
-VLLM_MIMO_GATE_FP16_GEMV=1 and hidden is fp16. bf16 weight cached as fp16
-once (exact); logits cast back to gate dtype; routing dtype flow unchanged.
-Expected: 41.4 ms/step -> ~1-2 ms/step.
-### Also
-* restart_mimo.sh hardened (port-ownership readiness poll; the old setsid
-  $! liveness check double-booted once -- 2 servers on :9700, cleaned up).
-* /tmp/trace_kernels.py: per-kernel step attribution from prof_patch traces.
-* tools/mimo_decode_instr.py: instruction-prompt decode bench (the stock
-  mimo_perf_bench.py prose prompts EOS in 1 token on this RL model).
-* tools/mimo_256k_conc.py: N-concurrent 256k liveness/throughput bench.
-* KNOWN QUIRK: importing vllm._custom_ops first in a bare python process
-  segfaults on this box; server import order avoids it. Not a product bug.
+Bar NOT fully met: nondet_hammer stayed 8/8 distinct after both fixes.
+Residual source is hipBLAS/Tensile split-K on the non-quantized GEMMs.
+One-boot discriminator left staged (run when a clean boot window exists):
+VLLM_ROCM_USE_SKINNY_GEMM=1 (forces the fp16 skinny-GEMM path) + hammer.
+Shippable mitigation in the meantime: temperature >= 0.1 turns tie-flips
+into intentional sampling. Behavior probe after fixes: FAIL/FAIL/PASS or
+PASS/PASS/FAIL (was FAIL/PASS/FAIL) -- still flaky under pure greedy;
+150k V3B probe itself is PASS (5/5 facts, 3/3 traps).
 
-## PERF 2026-10-03 p.m. #2: shutdown wedge -> first power reset of session
-SIGTERM of server 110072 left it stuck in the uvloop (API dead, engine core
-zombie, resource_tracker the only live child). GPU children were gone and
-KFD showed 0 VRAM for the parent, but 137 GB stayed pinned across 6 GPUs
-with 1000+ kworker/4:N+events threads in D state (kfd_process_wq teardown
-pile-up). Watched 4+ min: no reclaim. Zombie-pinned VRAM wedge ->
-sudo ipmitool chassis power reset at 13:44 UTC (pre-authorized, 1st of
-session). Box back in ~1 min. Post-reset: venv *.pyc deleted, fleet_free
-GATE found glm53.service RESPAWNED at boot on :9700 (auto-start via
-llm-fleet.target) -> systemctl --user stop + disable glm53.service, SIGTERM
-pid 2063, FLEET FREE. Note: the earlier SIGTERM hang was triggered while
-the prof_patch decode window (40 steps) was still open - profile windows
-now closed before any restart.
+Also landed while chasing this: VLLM_MIMO_GATE_FP16_GEMV=1 routes the
+MoE router-gate matmul through the fp16 skinny GEMM, killing a 41.4ms
+Tensile bf16 M=1 GEMM -> decode 28.07 tok/s (criterion 2 MET).
 
-## DECODE TARGET MET: 28.07 tok/s (was 12.35 baseline, target 20) — 2026-10-03
-Router-gate fp16 fix measured: decode 28.066 tok/s median of 3 reps
-(28.298/28.066/27.909, 300-token essays, T=0, tools/mimo_decode_instr.py
-decode --reps 3 --max-tokens 300 --pad-tokens 0). 2.27x vs the 12.35
-untuned baseline. Mechanism: the profile showed 41.4 ms/step of the 81 ms
-step was ONE Tensile bf16 GEMM (router gate nn.Linear at 880 us/call x47);
-routing it through rocm_unquantized_gemm LLMM1 in fp16 (VLLM_MIMO_GATE_FP16_GEMV=1)
-cut that to ~1 ms/step.
+## Prefill tuning sweep (2026-10-03, MAX_BATCHED_TOKENS 2048/4096/8192)
+Harness: tools/prefill_sweep.sh (warmup discarded, then measured leg;
+results append to /data/tmp/prefill_sweep_results.log).
+- @2048 (DONE): 20k-size -> 154.1 tok/s (15,745 prompt tok, 102.174s);
+  60k-size -> 143.5 tok/s (47,266 tok, 329.374s).
+- @4096 (DONE): 20k-size -> 178.6 tok/s (14,733 tok, 82.493s);
+  60k-size -> 165.5 tok/s (44,451 tok, 268.546s). Both legs +15-16% vs
+  2048. Warmups also faster (77.1s / 267.6s vs ~329s).
+- @8192 (DONE): 20k-size -> 197.2 tok/s (15,756 tok, 79.899s);
+  60k-size -> 178.5 tok/s (46,817 tok, 262.251s). Still climbing (+10%
+  20k, +8% 60k vs 4096).
+- @16384 (DONE): 20k-size -> 204.7 tok/s (15,756 tok, 76.961s);
+  60k-size -> 183.7 tok/s (45,361 tok, 246.975s). Knee confirmed
+  (+4% / +3% vs 8192).
+DECODE A/B (the decisive control): single-user decode is NBN-INDEPENDENT
+-- 24.37 @2048 vs 24.68 @16384 (5-rep medians, calibrated harness).
+The 28.07 -> 24.5 regression vs the original measurement is the cost of
+the fp32-atomic quality fixes above, NOT chunk size. Therefore 16384 is
+a free prefill win: shipped as the prod default in run_mimo_v2_6_omni.sh
+(commit 3a3e57201e). Bench-harness gotcha found en route: raw document
+prompts at T=0 can EOS immediately (chat model); a trailing newline in
+the probe prompt avoids the flake.
+Note the auto-derived --long-prefill-token-threshold (~682) interacts
+with NBN; the winner row in README is the configuration left running.
 
-Quality gates after the numerics change (bf16->fp16 gate matmul) ALL PASS:
-* /data/vllm-gfx906-dsv4/tools/verify_thinkstrip.py: PASS (reasoning first
-  bytes [84,104,101,...] = "The capi...", no think-start marker; both
-  streaming and non-streaming).
-* "The capital of France is" completion: coherent ("Paris. It is located
-  in the north-central part of the country...").
-* tools/needle_probe.py 24000 tokens depth 0.5: PASS (16984 prompt tokens).
-Reproduce:
-  python3 tools/mimo_decode_instr.py --port 9700 decode --reps 3 \\
-      --max-tokens 300 --pad-tokens 0
-Note: profile capture windows must be closed before restarts (a 40-step
-window wedged one shutdown -> power reset).
+## Crash postmortem (2026-10-03): "flaky boot segfaults" = zombie VRAM
+Signature: ValueError: Free memory on cuda:5 (7.85/31.98 GiB) < desired
+28.15 GiB. Cause: orphaned VLLM::Worker_TP processes (8 x 25.7GB seen)
+surviving parent death and starving the next boot. Explicit-PID SIGTERM
+frees it (25.7GB -> 23.6MB verified). Slow shard loads (~7.5 s/it vs
+healthy ~3 s) predict boot death -- early warning. restart_mimo.sh now
+sweeps zombies before booting (fc262029a6; corrects 1f1213c358 whose
+message claimed the sweep but the patch didn't land).
+Separately: a whole-machine freeze traced to amdgpu SVM/KFD workqueue
+CPU hogs (svm_range_restore_work) under pinned-VRAM churn; our
+expandable_segments config is SVM-backed and is the first A/B candidate
+(UNTESTED). See CRASH_FORENSICS.md. Real boot segfaults also exist
+(~50% flake) -- retry loop is the mitigation; core capture recipe in the
+forensics doc (apport swallows cores; set kernel.core_pattern=core).
 
-## 3x @256k CONCURRENCY: 3-way overlap OBSERVED (2026-10-03 16:58 UTC)
-Boot with KV_CACHE_BYTES=6012954214 (5.6 GiB): boot log says
-"GPU KV cache size: 144,896 tokens / Maximum concurrency for 262,144 tokens
-per request: 3.16x". Live test tools/mimo_conc_overlap.py --n 3
---target-tokens 256000 --max-tokens 12000 (prompt builder sends ~192k real
-tokens - chars/3.6 under-counts 1.34x):
-* 16:58:34 UTC: vllm:num_requests_running = 3.0, kv_cache_usage = 0.61
-  -> all three 256k-class sessions resident in VRAM simultaneously.
-* 2-way overlap (req1 decode + req2 prefill) observed earlier at 16:18.
-Caveat found mid-test: decode collapsed to ~20 s/step (0.1 tok/s) while
-VRAM showed 33.48/34.34 GB used = only 0.86 GB free. Root cause candidate:
-the segfault-flaked boot attempt-1 of the 15:40 restart leaked VRAM into
-the live attempt-2 server, thrashing the allocator (eager path + expandable
-segments under pressure). The 28 tok/s single-user bench ran on a boot with
-~3.3 GB free. Responses at 12000 max_tokens would take ~33h in that state,
-so the run is being cut and re-run clean with bounded max_tokens so the
-three responses COMPLETE (the acceptance wording).
-Also wired: --long-prefill-token-threshold passthrough (LONG_PREFILL_THRESHOLD)
-so long prefills can interleave (default 0 serializes them).
+## CRITERION 1: 3x concurrent 256k — the real story (2026-10-04, measured)
 
-## WEDGE #3 (2026-10-03 17:06) + teardown rule learned
-SIGTERM on an EMPTY queue still deadlocked teardown (state=D, 1031 D-state
-kfd_process_wq threads, 134 GB pinned). Third power reset of session.
-Pattern across all 3 wedges: teardown dies when the process is under VRAM
-pressure at signal time (2x 256k KV resident, or the 5.6 GiB-pool server at
-33.48/34.34 GB used = 0.86 GB free). Clean SIGTERMs (12:20, 13:10) had
-~3.2 GB free. Teardown rule going forward: signal only with >=2 GB free
-VRAM and empty queue; else power-cycle instead of fighting a D-state.
-The 5.6 GiB pool boot leaves only ~0.86 GB free by construction
-(weights ~25.3 + pool 5.6 + graphs/act ~2.6) -> for the remaining boots
-use 5.2 GiB (3x fits: 3x1.77=5.31... actually 3x255k sessions = 3x1.74 GiB
-= 5.22 GiB, tight) or accept power-cycle as the restart method.
-Current boot (post-reset-3): 5.6 GiB + LONG_PREFILL_THRESHOLD=512 for the
-bounded 3x completion test (max_tokens 300 so responses finish).
+The earlier "3.16x max / 3-way observed" line was config-blind. Measured
+truth, with configs:
 
-## 2026-10-03 evening: 3x completion run + config findings
-* **KV capacity depends on max_num_batched_tokens**: 5.6 GiB pool gives
-  "Maximum concurrency for 262,144 tokens per request: 3.16x" at budget
-  2048 but only 2.85x at budget 8192 (same num_gpu_blocks=3398; the
-  per-session estimate grows with the batch budget). 3x full-256k sessions
-  therefore REQUIRE budget=2048; the 4096/8192 prefill sweep must be
-  measured with fewer/shorter sessions. Interleave lever:
-  LONG_PREFILL_THRESHOLD < budget/n admits n concurrent long prefills
-  (threshold 682 with budget 2048 -> 3-way).
-* **Lost write lesson**: a run-script edit (MAX_BATCHED_TOKENS passthrough)
-  was lost because ipmitool reset ran 1s after write_text - dirty pages
-  never hit disk. Always `sync` before power resets. (Redone + synced.)
-* **restart_mimo.sh poll window**: was 5 min per attempt, too short for
-  cold-cache weight loads (~8 min after reset) -> 4 "failed" attempts that
-  were killed mid-load. Extended to 10 min; a survivor of the kill loop
-  ended up serving fine, which is how the gap was noticed.
-* Prefill before-number re-measured (budget 2048, pool 3.5 GiB):
-  143.09 tok/s at 15121 real tokens (20k target) - consistent with the
-  documented 142-156 baseline. The 60k before-run was lost to a transient
-  ssh drop; re-run in the sweep pass.
-* 3x residency evidence (prior run): num_requests_running=3.0 sustained
-  17:29-19:12 with kv_cache_usage 0.09 -> 0.71 (three ~256k sessions
-  growing together, ~617k tokens of KV resident). That run's client died
-  at 19:12 (ssh drop killed the in-flight HTTP requests); the completion
-  run uses a detached nohup client with incremental logging to
-  /data/tmp/3x_samples.log + /data/tmp/3x_results.log.
+| KV per GPU | NBN | LPT | pool tokens | max concurrency @262144 | alive? |
+|---|---|---|---|---|---|
+| 3.5 GiB | 16384 | unset | 90,368 | 1.57x | yes |
+| 7.0 GiB | 16384 | unset | 180,992 | 3.14x | NO — activation OOM on 1st request (466MiB workspace vs 228MiB free) |
+| 6.75 GiB | 8192 | unset | 174,592 | 3.43x | NO — OOM at 256k (512MiB vs 342MiB) |
+| 6.25 GiB | 8192 | unset | ~174k | 3.18x | yes, but prefills SERIALIZE (running=1, waiting=2 capacity) |
+| 6.25 GiB | 8192 | 512 | ~174k | 3.18x | YES — running=3 resident, completion test in flight |
 
-## PERF CAMPAIGN FINAL SCOREBOARD (2026-10-03)
+Three independent gates, all required for 3x @256k:
+1. KV pool size: KV_CACHE_BYTES=6710886400 (6.25 GiB/GPU, 50GB total).
+   7GiB fits on paper (3.14x) but leaves <500MiB for chunk workspace.
+2. LONG_PREFILL_THRESHOLD=512: without it this fork serializes long
+   prefills — sessions 2/3 wait on "capacity" even with 90% of the pool
+   free. With it, up to NBN/512 = 16 long prefills interleave per step.
+3. NBN=8192 (not 16384): halves the per-step activation workspace; the
+   16384 config OOMs once KV exceeds ~6.5GiB.
 
-| Target | Result | Evidence |
-|---|---|---|
-| Decode >=20 tok/s @ 1 user | **28.07 tok/s MET** (was 12.35) | tools/mimo_decode_instr.py decode --reps 3 --max-tokens 300: 28.298 / 28.066 / 27.909 |
-| >=3x concurrent @256k in VRAM | **MET (residency); completion run IN FLIGHT** | boot metric 3.16x @262144 (5.6 GiB pool); live num_requests_running=3.0 sustained (17:29-19:12 run, kv 0.09->0.71 = 3x256k class resident). Completion run in flight (detached, /data/tmp/3x_results.log) |
-| RAM-offloaded parked sessions | PENDING | tools/mimo_offload_test.py with --kv-offloading-size + --disable-hybrid-kv-cache-manager |
-| Prefill maximized + profile evidence | PARTIAL | before@2048 re-measured 143.09 tok/s @15.1k (20k target); 4096/8192 sweep pending |
+Architecture context (why the pool is so expensive): 48 layers = 9 full
+attention (kv_heads=4, head_dim=192, v_head_dim=128 padded to 192 in
+cache, x2 TP replication since 4 kv_heads < TP8) + 39 SWA (window=128,
+kv_heads=8) + 3 NextN MTP layers. Logged at boot: "Add 6 padding layers,
+may waste at most 15.38% KV cache memory".
+Future pool-capacity levers, ranked: int8 KV (INT8_KV_PLAN.md, halves
+per-token cost), V-pad removal (needs diffkv-capable kernel on gfx906),
+SWA group accounting review (pool formula vs runtime behavior).
 
-### Decode: what actually moved the needle
-1. GEMV family (the planned lever) — wired BOTH trees (vllm/gfx906_ext/
-   glm53_int4_gemv.py + glm53_wna16_gemv.py, anchor at models/mimo_v2.py
-   tail), smoke-tested, then measured and REJECTED:
-   * wna16 MoE GEMV vs moe_wna16 CUDA kernel at MiMo TP shapes (M=1 topk=8):
-     cuda 0.164 ms vs gemv 1.252 ms (TP w13), 0.062 vs 0.565 (TP w2).
-     Full config sweep BN 8..256 / BK 128..1024 / NW 1..4 / NS 1..2 /
-     SPLIT_K 1..2: best gemv still 5.73x / 7.26x slower.
-   * gemv_m vs LLMM1 (fp16 M=1): lm_head 1.09x (par), qkv 3.2x slower,
-     o_proj 5.9x, gate 5.5x slower.
-   * int4 dense GEMV only covers layer-0 qkv (attention is unquantized in
-     the CT ignore list) -> negligible either way.
-   All three hatch env gates default OFF in run_mimo_v2_6_omni.sh; the code
-   stays vendored/wired for other shape regimes. With hatches ON the whole
-   server regressed to 2.93 tok/s — that A/B is what found the real hog.
-2. Router gate fp16 skinny GEMM (THE win): decode-step profile
-   (/data/tmp/mimo_prof/trace_w1_p110244.json.gz, 34 steps) showed
-   41.43 ms/step x47 of ONE Tensile bf16 GEMM = the MoE router gate
-   (nn.Linear, moe_router_dtype=bfloat16) at 880 us/call inside F.linear.
-   Fix: MiMoV2MoE._gate_fp16_gemv routes it through
-   rocm_unquantized_gemm (LLMM1 path) in fp16, logits cast back to gate
-   dtype. VLLM_MIMO_GATE_FP16_GEMV=1 (default on). 41 ms -> ~1 ms/step.
-   Quality gates ALL PASS after the numerics change: verify_thinkstrip
-   (no think-marker leak, stream + non-stream), "capital of France is"
-   coherent, needle_probe 24000 depth 0.5 PASS (16984 prompt tokens).
-
-### Concurrency notes
-* 5.6 GiB pool (KV_CACHE_BYTES=6012954214) -> 3.16x capacity at 262144.
-* Prefill-to-prefill serializes unless LONG_PREFILL_THRESHOLD is set
-  (default 0: a mid-prefill request owns the whole 2048-token budget).
-  threshold=512 interleaves up to 4 long prefills -> 3-way residency.
-* Prompt builder note: mimo_decode_instr/conc builders use chars/3.6 which
-  under-counts real tokens 1.34x; mimo_conc_overlap --calibrate scales
-  against the HF tokenizer.
-
-### Operational war stories (do not relearn)
-* 3x teardown wedges (D-state, 1000+ kfd_process_wq threads, VRAM pinned,
-  load ~1000) -> 3 power resets. All SIGTERMs under VRAM pressure or with
-  non-empty queue; clean SIGTERMs had >=3 GB free. Rule: signal only with
-  empty queue + >=2 GB free VRAM, else power-cycle. Close prof_patch
-  windows before restarts (window-open SIGTERM = wedge #1).
-* glm53.service auto-respawns via llm-fleet.target after power reset and
-  grabs :9700 — stop + disable it before booting MiMo.
-* restart_mimo.sh hardened: queue-drain gate before SIGTERM,
-  port-ownership readiness poll (setsid $! liveness check double-booted
-  once: two servers on :9700).
-* A segfault-flaked boot attempt can leak VRAM into the NEXT boot's server
-  (observed 0.86 GB free + 20 s/step decode collapse). Check free VRAM
-  after boot before trusting perf numbers.
-* Bare `import vllm._custom_ops` first in a fresh process segfaults on this
-  box (import models.mimo_v2 first in test harnesses). Not a product bug.
-
-### Repro commands
-  decode:  python3 tools/mimo_decode_instr.py --port 9700 decode \
-               --reps 3 --max-tokens 300 --pad-tokens 0
-  3x:      python3 tools/mimo_conc_overlap.py --n 3 --target-tokens 256000 \
-               --calibrate --max-tokens 300
-  profile: VLLM_GFX906_PROF_DIR=/data/tmp/mimo_prof at boot; echo 1:40 >
-           /data/tmp/mimo_prof/TRIGGER; run load; analyze with
-           tools/trace_kernels.py trace_w1_p<pid>.json.gz
-
-### NEXT STEPS (in-flight / not done this window)
-1. 3x completion evidence: detached run logs live in
-   /data/tmp/3x_results.log (DONE reqN lines) + /data/tmp/3x_samples.log
-   (30s running/kv samples). Config: KV_CACHE_BYTES=6012954214
-   LONG_PREFILL_THRESHOLD=682 (3.16x capacity, 3 admitted at t=0).
-   Command: nohup vllm_dsv4_env/bin/python3 -u tools/mimo_conc_overlap.py
-   --n 3 --target-tokens 256000 --calibrate --max-tokens 300
-2. RAM offload (NOT done): boot KV_CACHE_BYTES=3758096384 KV_OFFLOAD_GB=64
-   DISABLE_HYBRID_KM=1, run tools/mimo_offload_test.py. Needs the
-   --kv-offloading-size + --disable-hybrid-kv-cache-manager pair; the test
-   watches preemptions / MemAvailable / completion. Teardown rule applies.
-3. Prefill sweep (PARTIAL): before@2048 = 143.09 tok/s (15.1k real). Boot
-   MAX_BATCHED_TOKENS=4096 and =8192 (fewer sessions; capacity drops to
-   2.85x at 8192), run tools/mimo_perf_bench.py prefill --sizes 20000 60000,
-   profile 60k with VLLM_GFX906_PROF_DIR + TRIGGER window, analyze with
-   tools/trace_kernels.py. Note threshold must be 0 or >= budget for clean
-   single-stream prefill numbers.
-
-## 2026-10-03/04 night: output-quality root cause (stray "." + multi-turn incoherence)
-
-**Root cause: nondeterministic fp16 atomic combine in the INT4 MoE kernel.**
-`csrc/moe/moe_wna16.cu` (the active int4 expert-GEMM kernel, `torch.ops._moe_C.moe_wna16_gemm`)
-combined the top-k expert + K-split partials into the output with
-`atomicAdd_half` (a CAS loop over fp16, since gfx906 has no native fp16
-atomicAdd). Each add rounds to fp16, and ~top_k x num_K_tiles (~64-128)
-contributors land in nondeterministic order per output element. Result:
-identical temperature=0 requests drift 0.05-0.25 nats in logprob space
-run-to-run (fp rounding is ~1e-5) and flip near-tie argmaxes every ~10-40
-tokens. A flip onto a punctuation token = the stray "."; a flip that cascades
-into a broken trajectory = "doesn't know what it is doing" / "randomly deletes
-stuff". Multi-turn/long contexts are worst because margins are flatter and a
-single early flip reruns the whole trajectory.
-
-**Evidence chain (tools/ in this repo, all probes stdlib HTTP):**
-* mimo_nondet_hammer2.py: 8x identical fresh greedy computes
-  (prompt_logprobs=0 => forced recompute): 8/8 distinct token streams,
-  per-position logprob drift up to 0.24-0.46 nats, drift already at generated
-  token 0 (prefill path racy too). Flip margins ~0.05-0.25 nats.
-* mimo_behavior_probe.py 9700 8000 1 --max-tokens 512, SAME prompt, 3 runs:
-  FAIL / PASS / FAIL. Failing run forgot 4/5 embedded facts and degenerated
-  into an echo of the prompt (with a "two two" token glitch) - the "randomly
-  deletes stuff / doesn't know what it is doing" report, reproducibly random.
-* mimo_qprobe.py dot/repeat: two identical greedy requests diverged at
-  generated token 0 (ids [576,...] vs [5443,...]).
-* mimo_detok_diff.py + real captures: server text == tokenizer.decode(ids) ==
-  tokenizers.DecodeStream replay -> detokenizer exonerated; the model emits
-  the '.' token itself. Qwen2TokenizerFast byte-level BPE, '.' = token id 13.
-* mimo_h4_template.py: 3-turn chat template render clean -> H4 exonerated.
-* mimo_cacheab.py (cache-HIT vs forced-fresh-recompute via prompt_logprobs ->
-  skip_reading_prefix_cache): mismatches were fully explained by the noise
-  floor (both arms fail the fresh-vs-fresh control). Decisive H1 test also
-  done: booted with --no-enable-prefix-caching -> same nondeterminism
-  (8/8 distinct), and the frozen-history multi-turn warm-vs-cold probe became
-  5/5 IDENTICAL with all 17 logic checks PASS. Prefix cache / hybrid-SWA block
-  accounting NOT the root cause (and code review of
-  single_type_kv_cache_manager.py / kv_cache_coordinator.py / block_pool.py
-  found no stale-block bug for window=128 < block=256).
-* VLLM_MIMO_GATE_FP16_GEMV=0 A/B (the decode-speed skinny gate GEMM):
-  unchanged nondeterminism (8/8 distinct) -> gate fp16 GEMM exonerated.
-
-**Fix (this commit): fp32 atomic accumulation in moe_wna16.cu.**
-The kernel's per-contributor partial `res[]` is already fp32; the epilogue now
-does a native fp32 `atomicAdd` into an fp32 shadow buffer and the launcher
-casts back to the caller dtype. Kills the per-add fp16 rounding and the CAS
-loop (~1e4 noise reduction; residual = fp32 order-only, ~1e-7). Backups:
-csrc/moe/moe_wna16.cu.bak-fp32acc and the old _moe_C.abi3.so.bak-fp32acc in
-the venv. Rebuilt _moe_C via ninja and deployed to vllm_dsv4_env site-packages.
-
-**Verification (after fix, prod config: prefix caching ON, gate fp16 ON):**
-(see night-of logs /data/tmp/nondet2_afterfix.log etc. on the box; summary in
-the PR/commit message. Before: 8/8 distinct streams, 0.1-0.46 nat drift,
-behavior probe flaky FAIL on identical input. Target after: 1/8-2/8 distinct
-with drift <= ~1e-3, behavior probe stable PASS.)
-
-**Also shipped tonight:**
-* run_mimo_v2_6_omni.sh: DISABLE_PREFIX_CACHE env toggle (default unchanged).
-* Probe/analysis tooling in tools/: mimo_qprobe.py, mimo_cacheab.py,
-  mimo_nondet_hammer.py, mimo_nondet_hammer2.py, mimo_detok_diff.py,
-  mimo_h4_template.py.
-* Note: early-boot segfault ("!!!!!!! Segfault encountered !!!!!!!" at engine
-  init, ~50-70% of boots) remains a separate flake (repro attempts with core
-  capture live in /tmp/core_try*.log). Boot scripts retry around it.
-
-**Ops notes:**
-* The 5.6 GiB KV-pool config leaves <2 GB free VRAM -> SIGTERM teardown is
-  wedge-prone (WEDGE rule); restarts tonight used `sudo ipmitool chassis power
-  reset` per the port plan. Two concurrent TP8 boots race and crash each other
-  (matches the 2026-09-11 fleet_free lesson) - serialize boots with a lock.
-
-### Follow-up pin (same night): dominant residual source = dense int4 GEMM kernel
-After the moe_wna16 fp32-atomic fix (verified live in the loaded _moe_C.abi3.so),
-nondeterminism is UNCHANGED (hammer2: 7/8 distinct, 0.35 nat drift; behavior
-probe variant=1 still flaky PASS/PASS/FAIL; qprobe dot/repeat still diverges at
-token ~6). The residual source is the same bug class in the DENSE int4 GEMM:
-csrc/quantization/gptq/q_gemm.cu (exllama/GPTQ kernels used for every quantized
-Linear - qkv/o/gate/up/down, all 48 layers, prefill AND decode):
-* gemm_half_q_half_gptq_{2,3,4,8}bit_kernel epilogue: `atomicAdd(half2*)` of
-  K-chunk partials into the output (split-K, ~size_k/BLOCK_KN_SIZE contributors
-  in racy order).
-* WORSE: the "Zero output" step (`if (blockIdx.z == 0) *(uint64_t*)c_... = 0`)
-  RACES with other K-chunks' atomicAdds - a late zero wipes early partials.
-* gemm_half_q_half_alt_{4,8}bit_kernel (non-exllama path): same
-  `atomicAdd(&mul[...], res[m])` pattern (and fp16 `res[]` accumulation).
-
-Why this dominates: targets ["Linear"] int4 g32 ASYM (config.json
-quantization_config) = every dense projection is int4 -> these kernels run in
-every layer x every token, unlike moe_wna16 (experts only).
-
-Patch design (same as moe_wna16 fix, ready to implement):
-1. Thread a float* accumulator buffer through the kernel signatures /
-   MatrixView (replace MatrixView_half_rw c_ for the write target).
-2. Move the zero-init to the launcher (kills the zero-vs-add race).
-3. Epilogue: `atomicAdd(&acc[...], (float)res)` (native fp32 atomic, fixed ~1e-7
-   order error), then `c.copy_(acc.to(kFloat16))`.
-4. Same for the alt family. Rebuild the quantization extension, deploy to
-   vllm_dsv4_env site-packages (two-tree rule for .py; .so single copy + bak).
-5. Re-verify with tools/mimo_nondet_hammer2.py (target: 1/8 distinct, drift
-   <=1e-3) and 3x tools/mimo_behavior_probe.py 9700 8000 1 (target: 3/3 PASS).
-Verification after the moe fix (prod config, logs /data/tmp/*_afterfix.*):
-behavior variant=1 PASS/PASS/FAIL (was FAIL/PASS/FAIL), hammer 7/8 distinct
-max drift 0.35 nat (was 8/8, 0.24-0.46) - i.e. moe_wna16 fix is a real
-determinism hardening but NOT the dominant source; q_gemm.cu is.
-
-Exonerated (do not re-litigate): prefix cache (decisive noprefix boot),
-incremental detokenizer (decode(ids) round-trip exact), chat template,
-VLLM_MIMO_GATE_FP16_GEMM (A/B 8/8 both ways), moe_sum (fixed-order per-element
-loop), triton attention reduce_segments (deterministic tl.sum/tl.max over
-segment partials; no atomics in triton_prefill_attention.py /
-triton_unified_attention.py).
-
-## 2026-10-04 RETRACTION: prefix cache is NOT a cause of the output-quality bugs
-
-Earlier tonight some notes framed two separate bugs ("Bug A" prefix-cache
-corruption + "Bug B" numerics nondeterminism). **RETRACTED**: there is ONE
-root cause. The prefix-cache-as-cause reading is explicitly withdrawn:
-* Decisive test (booted `--no-enable-prefix-caching`, everything else
-  unchanged): nondeterminism identical (8/8 distinct streams, same drift).
-* Frozen-history multi-turn warm-vs-cold probe on that boot: 5/5 turns
-  IDENTICAL, all 17 logic checks PASS.
-* mimo_cacheab.py warm-vs-fresh mismatches are fully explained by the T=0
-  noise floor (both arms fail the fresh-vs-fresh control at the same rate).
-* Hybrid-SWA block accounting reviewed (single_type_kv_cache_manager.py
-  SlidingWindowManager.find_longest_cache_hit, hybrid fixed-point in
-  kv_cache_coordinator.py, block_pool cache_full_blocks/free/touch): correct
-  and conservative for window=128 < block=256; no stale-block bug exists.
-Single root cause = nondeterministic fp16 atomic split-K combine in the
-quantized GEMM kernels (see sections below). Any README/plan text that still
-lists prefix-cache corruption as a bug should be read as superseded by this
-retraction.
-
-## 2026-10-04: q_gemm.cu fp32-atomic fix (the dominant source)
-
-csrc/quantization/gptq/q_gemm.cu (dense int4 GEMM for every quantized Linear -
-qkv/o/gate/up/down, all 48 layers, prefill AND decode) had the same bug class
-as moe_wna16.cu, plus a worse zero-vs-add race:
-* epilogue `atomicAdd(half2*)` of K-chunk partials (fp16 CAS on gfx906: no
-  native fp16 atomics; ~size_k/BLOCK_KN_SIZE=16-32 contributors per output in
-  racy order, each rounded to fp16).
-* `if (blockIdx.z == 0) *(uint64_t*)c_... = 0` output zero-init RACED with
-  other K-chunks' atomicAdds - a late zero wiped already-added partials.
-
-Fix (implemented in both the gptq 2/3/4/8-bit kernels and the alt 4/8-bit
-kernels):
-1. Kernel outputs are now fp32 (`MatrixView_float_rw` added in
-   matrix_view.cuh; `float* c` threaded through gemm_half_q_half_cuda_part /
-   gemm_half_q_half_alt and the kernel typedef).
-2. Zero-init moved to the launcher: gemm_half_q_half_cuda allocates an
-   at::zeros fp32 accumulator (cannot race with adds) and folds it into the
-   caller's fp16 output exactly once (`cudaMemcpyAsync` of the half cast).
-3. Epilogue: native fp32 `atomicAdd` of the (already fp32, or converted)
-   partials - ~1e-7 order error instead of ~1e-3 fp16 rounding, and no CAS
-   loop. The zero-vs-add race is gone by construction.
-The reconstruct (size_m > MAX_Q_GEMM_ROWS) path is unchanged: it is a full
-non-split cuBLAS GEMM with beta=0. Backups: q_gemm.cu.bak-fp32acc,
-matrix_view.cuh.bak-fp32acc, and _C.abi3.so.bak-fp32acc in the venv.
-
-## 2026-10-04 q_gemm.cu fix verification: bar NOT met - status and next step
-
-Verification after deploying the q_gemm.cu fp32-atomic fix (built _C, deployed
-to vllm_dsv4_env site-packages + build tree; kernel confirmed ACTIVE: for ROCm,
-choose_mp_linear_kernel() puts ExllamaLinearKernel (ops.gptq_gemm) FIRST for
-this int4-g32 checkpoint - the patched path is the live one):
-* tools/mimo_nondet_hammer2.py 9700 qgemmfix (8x identical fresh greedy):
-  8/8 distinct streams, max|dlogprob| drift 0.31 nat. Bar (1/8, <=1e-3) NOT
-  met. Same signature as before the fix.
-* tools/mimo_behavior_probe.py 9700 8000 1 --max-tokens 512 x3: FAIL/FAIL/PASS
-  (the two FAILs forgot all 5 embedded facts - the degenerate mode). Bar
-  (3/3 PASS) NOT met.
-* Quality gates (single-turn) all PASS: France probe ("The capital of France
-  is **Paris**."), needle ~25k-token recall ("orchid-lantern-42"),
-  tools/verify_thinkstrip.py (reasoning has no leading think marker).
-  Consistent with the original report: single-turn is fine; the failure is
-  T=0 nondeterminism / long-context flakiness.
-
-Honest state of the fix (shippable as-is): BOTH custom quantized-GEMM sites
-now accumulate in fp32 with native fp32 atomics and have no zero-vs-add race
-(moe_wna16.cu + q_gemm.cu gptq/alt families) - real determinism hardening,
-~1e4 rounding-noise reduction at those sites, plus a correctness fix for the
-zero-vs-add erase race. But the dominant T=0 logprob noise (~0.05-0.3 nat)
-is NOT yet eliminated, so greedy outputs still flip near ties. Mitigation
-until the residual source is pinned: run agent workloads at temperature>0
-(sampling absorbs near-tie flips; greedy amplifies them into hard flips).
-
-Where the residual source must be (both custom-kernel races are now fixed,
-and these were already exonerated: prefix cache, detokenizer, chat template,
-gate fp16 GEMM, moe_sum, triton attention reduce_segments, marlin linear
-(not selected on ROCm), CompressedTensorsWNA16 -> ExllamaLinearKernel is the
-live dense path):
-1. TOP SUSPECT: hipBLAS/Tensile GEMMs with atomic split-K (the unquantized
-   F.linear calls: router gate (both bf16 and fp16 variants A/B'd noisy),
-   lm_head if unquantized, and cublasHgemm in q_gemm's reconstruct path for
-   size_m>32). This class is the only always-on GEMM path not yet audited for
-   atomics, and it fits the unchanged noise after both custom-kernel fixes.
-   DEFINED NEXT TEST (one boot): VLLM_ROCM_USE_SKINNY_GEMM=1 reroutes thin
-   GEMMs to LLMM1/triton_matmul (fixed-order warp reductions in
-   csrc/rocm/skinny_gemms.cu) then re-run tools/mimo_nondet_hammer2.py;
-   1/8 + <=1e-3 would convict hipBLAS and the fix is to route (or rewrite)
-   the remaining GEMMs through deterministic kernels.
-2. Secondary: NCCL allreduce ordering under TP=8 (unlikely), and the triton
-   wna16 prefill path's pair-row stores (analyzed single-writer; low odds).
-
-Prefill sweep (budget 2048/4096/8192 via tools/prefill_sweep.sh) NOT run
-tonight: it was gated on the quality bar being met. Harness is staged and
-ready; run it after the skinny-GEMM A/B.
+Ops notes from this session: SIGTERM teardown wedged in D-state twice
+(GPU pinned, kfd drain stalled) -> ipmitool power reset both times. The
+CRASH_FORENSICS SVM hypothesis A/B verdict: PYTORCH_ALLOC_CONF=
+expandable_segments:False (run script env now overridable) gives clean
+SIGTERM exits 2/2 so far, vs 2/2 D-state wedges with ES:True. ES:False
+is now the standing prod config; ES:True boot reserved for any future
+A/B only.
