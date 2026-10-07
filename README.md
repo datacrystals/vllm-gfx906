@@ -1,3 +1,39 @@
+## Models running on this fork (8x AMD MI50 32GB, gfx906)
+
+Two production models, all numbers measured live on the box (no matrix
+cores, PCIe gen3, no working P2P -- the per-model sections below carry
+the full campaigns, evidence chains, and postmortems):
+
+| Model | Weights | Decode | Prefill | Context / concurrency |
+|---|---|---|---|---|
+| **MiMo-V2.6-Flash** (omni: audio/image/video in, text out, thinking) | in-house INT4 (compressed-tensors g32 asymmetric, `mimo_convert_int4` from [XiaomiMiMo/MiMo-V2.6-Flash-RL](https://huggingface.co/XiaomiMiMo/MiMo-V2.6-Flash-RL)) | **24.6 tok/s** | **737 tok/s @20k / 521 @60k** | 262,144 ctx; 3x resident @256k |
+| **GLM-5.3-Flash** | [cyankiwi/GLM-5.3-Flash-AWQ-INT4](https://huggingface.co/cyankiwi/GLM-5.3-Flash-AWQ-INT4) (activation-aware AWQ) | **15.2-16.6 tok/s** | **318 tok/s @60k** | 262,144 ctx (needle @249k); 2.25x @256k |
+
+### Optimizations shipped
+
+MiMo-V2.6-Flash (Oct 2026):
+- **dqmm prefill path**: dequant int4 experts -> fp16 Tensile GEMMs
+  (Triton tl.dot has no MFMA on gfx906 and capped prefill at ~3.5
+  TFLOP/s) = 3.6x/2.8x prefill; pair-capped + cached workspaces
+  (`vllm/gfx906_ext/moe_dqmm.py`)
+- **Router-gate fp16 skinny-GEMM reroute**: 41.4 ms -> ~1 ms of an 81 ms
+  decode step (Tensile bf16 M=1 path is brutal on this arch)
+- **moe_wna16 fp32-atomic combine** -- the numerics fix that closed the
+  word-salad quality bug (costs ~13% decode, measured, accepted)
+- **KV-pool sizing + long-prefill gating** -> 3x 256k sessions resident
+
+GLM-5.3-Flash (Sept 2026):
+- **KV pool decoupling**: KDA recurrent state out of the per-block
+  charge (20.76 -> 2.94 MiB/block) + fp16 KDA state w/ fp32 accumulate
+  -> 256k context on 8x32GB
+- **ACS register reprogramming** (PLX downstream + Intel root ports):
+  8-way all-reduce 456 -> 132 us = 3.5x collectives
+- **Union-GEMM sparse-MLA prefill path** (needle-gated @ 71k)
+- **MTP speculative-decoding glue** (written; gated off pending a
+  verify fix)
+
+---
+
 ## MiMo-V2.6-Flash (omni) port — status (8x MI50, Oct 2026)
 
 The same 8x MI50 box now also serves **MiMo-V2.6-Flash-INT4**
