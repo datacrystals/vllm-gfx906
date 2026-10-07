@@ -1,13 +1,13 @@
 ## Models running on this fork (8x AMD MI50 32GB, gfx906)
 
-Two production models, all numbers measured live on the box (no matrix
-cores, PCIe gen3, no working P2P -- the per-model sections below carry
-the full campaigns, evidence chains, and postmortems):
+Two production models; all numbers measured live on the box (no matrix
+cores, PCIe gen3, no working P2P). Details are in the per-model
+sections below.
 
 | Model | Weights | Decode | Prefill | Context / concurrency |
 |---|---|---|---|---|
-| **MiMo-V2.6-Flash** (omni: audio/image/video in, text out, thinking) | in-house INT4 (compressed-tensors g32 asymmetric, `mimo_convert_int4` from [XiaomiMiMo/MiMo-V2.6-Flash-RL](https://huggingface.co/XiaomiMiMo/MiMo-V2.6-Flash-RL)) | **24.6 tok/s** | **737 tok/s @20k / 521 @60k** | 262,144 ctx; 3x resident @256k |
-| **GLM-5.3-Flash** | [cyankiwi/GLM-5.3-Flash-AWQ-INT4](https://huggingface.co/cyankiwi/GLM-5.3-Flash-AWQ-INT4) (activation-aware AWQ) | **15.2-16.6 tok/s** | **318 tok/s @60k** | 262,144 ctx (needle @249k); 2.25x @256k |
+| MiMo-V2.6-Flash (omni: audio/image/video in, text out, thinking) | in-house INT4 (compressed-tensors g32 asymmetric, `mimo_convert_int4` from [XiaomiMiMo/MiMo-V2.6-Flash-RL](https://huggingface.co/XiaomiMiMo/MiMo-V2.6-Flash-RL)) | 24.6 tok/s | 737 tok/s @20k / 521 @60k | 262,144 ctx; 3x resident @256k |
+| GLM-5.3-Flash | [cyankiwi/GLM-5.3-Flash-AWQ-INT4](https://huggingface.co/cyankiwi/GLM-5.3-Flash-AWQ-INT4) (activation-aware AWQ) | 15.2-16.6 tok/s | 318 tok/s @60k | 262,144 ctx (needle @249k); 2.25x @256k |
 
 ### Optimizations shipped
 
@@ -17,9 +17,9 @@ MiMo-V2.6-Flash (Oct 2026):
   TFLOP/s) = 3.6x/2.8x prefill; pair-capped + cached workspaces
   (`vllm/gfx906_ext/moe_dqmm.py`)
 - **Router-gate fp16 skinny-GEMM reroute**: 41.4 ms -> ~1 ms of an 81 ms
-  decode step (Tensile bf16 M=1 path is brutal on this arch)
-- **moe_wna16 fp32-atomic combine** -- the numerics fix that closed the
-  word-salad quality bug (costs ~13% decode, measured, accepted)
+  decode step (Tensile bf16 M=1 path is slow on this arch)
+- **moe_wna16 fp32-atomic combine** -- numerics fix for the
+  output-corruption issue (costs ~13% decode, measured)
 - **KV-pool sizing + long-prefill gating** -> 3x 256k sessions resident
 
 GLM-5.3-Flash (Sept 2026):
@@ -36,125 +36,127 @@ GLM-5.3-Flash (Sept 2026):
 
 ## MiMo-V2.6-Flash (omni) port — status (8x MI50, Oct 2026)
 
-The same 8x MI50 box now also serves **MiMo-V2.6-Flash-INT4**
-(`MiMoV2OmniForCausalLM`) -- audio/image/video in, text out, with thinking.
+The same 8x MI50 box also serves **MiMo-V2.6-Flash-INT4**
+(`MiMoV2OmniForCausalLM`): audio/image/video input, text output, with
+reasoning content returned separately.
 
-| Metric | Number | Notes |
+| Metric | Result | Notes |
 |---|---|---|
-| Decode (1 user) | **24.5 tok/s** | target 20 MET; was 28.07 pre-quality-fix -- the ~13% delta is the fp32-atomic correctness tax (proven NBN-independent: 24.37 @2048 vs 24.68 @16384, 5 reps each) |
-| Needles | **24k / 65k / 130k GREEN** | 24k re-run post-numerics-fix; 65k/130k measured pre-fix (130k = 102.9k tok, 803s) |
-| 150k agent behavior | **PASS** (MIMO-150K-V3B) | 5/5 facts, 3/3 traps refused @ 177k tok |
-| Concurrency @256k | **3.18x pool, 3-resident + 3/3 completion verified** | pool holds 3.18x262144 by construction; completion run 3/3 on the dqmm config (walls 846/1696/2538s, prefills serialize at full chunks); residency gates table in MIMO_PORT_PLAN; RAM offload deferred |
-| Prefill | **737 tok/s @20k / 521 tok/s @60k** | dqmm hatch: dequant int4 experts -> fp16 Tensile GEMMs (VLLM_GFX906_MOE_DQMM, default ON) = 3.6x/2.8x over the 205/184 Triton ceiling (tl.dot lowers to FMA, no MFMA on gfx906); full campaign in MIMO_PORT_PLAN |
-| Modalities | **audio + image + video all work** | vision outputs not in this checkpoint |
+| Decode (1 user) | 24.5 tok/s | Target was 20. Was 28.07 before the numerics fixes; the ~13% difference is the cost of the fp32-atomic corrections (independent of chunk-size setting: 24.37 @2048 vs 24.68 @16384, 5 reps each) |
+| Needle-in-haystack recall | passing at 24k / 65k / 130k | 24k re-run after the numerics fix; 65k/130k measured before it (130k = 102.9k tokens, 803s) |
+| 150k agent-behavior probe | passing (MIMO-150K-V3B) | 5/5 facts recalled, 3/3 traps refused at 177k tokens |
+| Concurrency @256k | 3.18x pool; 3 resident + 3/3 completion verified | Pool holds 3.18x262144 by construction; completion run 3/3 on the dqmm config (walls 846/1696/2538s; prefills serialize at full chunks); residency gates table in MIMO_PORT_PLAN; RAM offload deferred |
+| Prefill | 737 tok/s @20k / 521 tok/s @60k | dqmm path: dequantize int4 experts to fp16 and run Tensile GEMMs (VLLM_GFX906_MOE_DQMM, default on); 3.6x/2.8x over the 205/184 Triton baseline (tl.dot lowers to FMA on gfx906, no MFMA); full writeup in MIMO_PORT_PLAN |
+| Modalities | audio, image, video inputs working | vision outputs not present in this checkpoint |
 
-Decode story (the good kind of surprise): profiling showed a single bf16
-router-gate GEMM eating 41.4 ms of an 81 ms step (51%!) -- Tensile's bf16
-M=1 path is brutal on gfx906. Rerouting it to the fp16 skinny-GEMM path
-cut it to ~1 ms. The hand-wired GEMV kernels were measured and left OFF.
+Decode note: profiling showed a single bf16 router-gate GEMM taking
+41.4 ms of an 81 ms step (51%). Tensile's bf16 M=1 path is slow on
+gfx906; rerouting it to the fp16 skinny-GEMM path reduced it to about
+1 ms. The hand-written GEMV kernels were measured and left off.
 
-Port war stories (full writeup in MIMO_PORT_PLAN.md):
+Notable issues resolved (details in MIMO_PORT_PLAN.md):
 
-- **Fused-QKV word-salad monster**: checkpoint stores fused qkv_proj
-  pre-sharded for TP4 with per-chunk 128x128 block scales; naive flat reads
-  scramble Q/K/V. All three implementations were identically garbage until
-  the per-chunk-padded regroup fix.
-- **flash-attn Triton-AMD silently ignores `window_size`** -- the upstream
-  flash_attn package drops the window, so every ViT SWA block silently ran
-  full attention. Fork-wide hazard for package users; MiMo ViT now uses an
-  explicit SDPA window mask + sinks. (The LM is unaffected: it runs
-  vLLM's own TritonAttentionBackend, VLLM_USE_TRITON_FLASH_ATTN=1, which
-  honors window + sinks.)
-- **fp16 overflows the ViT** (block27 absmax ~5e5) -> NaN image features ->
-  "!!!!" walls. Tower now runs BF16. Post-fix tower matches HF at cos 0.9987.
-- **Reasoning-parser leak**: GLM53-PORT split override never stripped the
-  opening think marker (base class does via partition) -> leaked into
-  reasoning_content. Fixed with stream-safe head handling.
-- **"Flaky boot segfault" was never a segfault**: silent engine-parent death
-  at post-load (dmesg clean). Suspect: a debug checksum block spiking 8
-  workers at that transition (now gated behind VLLM_MIMO_AUDIT=1).
-- **Machine freezes**: amdgpu SVM/KFD workqueues (svm_range_restore_work)
-  hog CPUs under pinned-VRAM churn -> hard freeze. Our
-  `expandable_segments` config is SVM-backed and is the first A/B target.
-  See CRASH_FORENSICS.md.
+- Fused-QKV layout: the checkpoint stores fused qkv_proj pre-sharded
+  for TP4 with per-chunk 128x128 block scales; naive flat reads
+  scramble Q/K/V. Fixed with the per-chunk-padded regroup.
+- flash-attn Triton-AMD silently ignores `window_size`, so every ViT
+  SWA block ran full attention. The MiMo ViT now uses an explicit SDPA
+  window mask + sinks. (The LM is unaffected: it runs vLLM's own
+  TritonAttentionBackend, VLLM_USE_TRITON_FLASH_ATTN=1, which honors
+  window + sinks.)
+- fp16 overflows in the ViT (block27 absmax ~5e5) produced NaN image
+  features. The tower now runs BF16; post-fix tower matches HF at
+  cosine similarity 0.9987.
+- Reasoning-parser leak: the split override never stripped the opening
+  think marker, leaking it into reasoning_content. Fixed with
+  stream-safe head handling.
+- Intermittent boot failures at post-load: silent engine-parent death
+  with clean dmesg. A debug checksum block is the suspect and is now
+  gated behind VLLM_MIMO_AUDIT=1.
+- Machine freezes: amdgpu SVM/KFD workqueues (svm_range_restore_work)
+  under pinned-VRAM churn. The expandable_segments config is
+  SVM-backed and is the first A/B target. See CRASH_FORENSICS.md.
 
-Quality investigation outcome (measured): ONE root cause for both
+Quality investigation (measured): one root cause for both reported
 symptoms -- T=0 forward-pass nondeterminism from fp16 atomic split-K
-reductions in the quantized GEMM kernels (no native fp16 atomics on gfx906;
-partials land in racy order, and the GPTQ kernel's zero-init RACES the
-accumulation). Near-tie argmax flips every ~10-40 tokens: a flip onto
-punctuation = the stray "."; a cascading flip = the multi-turn "doesn't
-know what it is doing" (behavior probe: same prompt, 3 runs -> FAIL/PASS/
-FAIL; the failing run forgot 4/5 embedded facts). EARLIER "prefix-cache
-corruption" reading is RETRACTED -- the warm/cold splits were the noise
-floor; cache-off runs are warm==cold identical (5/5) and the SWA block
-accounting audits clean.
-Status: BOTH fixes shipped and verified loaded -- moe_wna16 combine
-(fp32 atomicAdd shadow buffer, ~1e4 noise reduction; b9f7226387) and the
-dominant site, csrc/quantization/gptq/q_gemm.cu dense INT4 GEMM (all 48
-layers, every token): fp32 accumulator + launcher-side zero-init +
-`::atomicAdd` (the compat.cuh half-atomics hide the float builtin inside
-`namespace vllm::gptq`; 8c002f93cc, f1693f36f3). Residual T=0 noise is
-hipBLAS/Tensile split-K (hammer stayed 8/8 distinct); one-boot
-discriminator documented: VLLM_ROCM_USE_SKINNY_GEMM=1 + hammer.
-Shippable mitigation: temperature >= 0.1 turns the tie-flips into
-intentional sampling. Full evidence in QUALITY_HYPOTHESES.md.
-USER-VERIFIED (2026-10-04): at T=1.0 top_p=1.0 the residual noise
-(~1-2 nat logit perturbation) surfaced as frankenword bursts
-("Gunmedibaseketing"); T 0.6-0.8 + top_p 0.9-0.95 + min_p ~0.05
-eliminated ALL observed artifacts in live use. Recommended client config.
+reductions in the quantized GEMM kernels (gfx906 has no native fp16
+atomics; partial results land in racy order, and the GPTQ kernel's
+zero-init raced the accumulation). Near-tie argmax flips occur every
+~10-40 tokens; a flip onto punctuation produced the stray "."
+reports, and a cascading flip produced the multi-turn incoherence
+reports (behavior probe: same prompt, 3 runs -> FAIL/PASS/FAIL; the
+failing run dropped 4/5 embedded facts). The earlier "prefix-cache
+corruption" reading is retracted: the warm/cold splits were the noise
+floor, cache-off runs are warm==cold identical (5/5), and the SWA
+block accounting audits clean.
+Status: both fixes shipped and verified loaded -- the moe_wna16
+combine (fp32 atomicAdd shadow buffer, ~1e4 noise reduction;
+b9f7226387) and the dominant site, the dense INT4 GEMM in
+csrc/quantization/gptq/q_gemm.cu (all 48 layers, every token): fp32
+accumulator + launcher-side zero-init + `::atomicAdd` (the compat.cuh
+half-atomics hide the float builtin inside `namespace vllm::gptq`;
+8c002f93cc, f1693f36f3). Residual T=0 noise is hipBLAS/Tensile
+split-K; a one-boot discriminator is documented
+(VLLM_ROCM_USE_SKINNY_GEMM=1 + hammer). Practical mitigation:
+temperature >= 0.1 turns the tie-flips into intentional sampling.
+Full evidence in QUALITY_HYPOTHESES.md.
+User verification (2026-10-04): at T=1.0 top_p=1.0 the residual noise
+(~1-2 nat logit perturbation) surfaced as occasional nonsense-token
+bursts; T 0.6-0.8 + top_p 0.9-0.95 + min_p ~0.05 eliminated all
+observed artifacts in live use. Recommended client configuration.
 
-Open items (honest): prefill NBN sweep DONE (154->205 tok/s) and the
-kernel-level lever DONE (dqmm -> 737/521 tok/s @20k/60k, campaign + 3
+Remaining items: prefill NBN sweep complete (154->205 tok/s) and the
+kernel-level change complete (dqmm -> 737/521 tok/s @20k/60k, with 3
 integration postmortems in MIMO_PORT_PLAN.md); decode cost of the
-fp32-atomic correctness fixes MEASURED (28.07 pre-fix -> 24.4-24.7
-post-fix, NBN-independent); RAM offload for parked sessions unverified
-(user-deprioritized); residual T=0 nondet under greedy (mitigate with
-temperature >= 0.1).
+fp32-atomic corrections measured (28.07 pre-fix -> 24.4-24.7
+post-fix, NBN-independent); RAM offload for parked sessions not yet
+verified (deprioritized); residual T=0 nondeterminism under greedy
+decoding (mitigate with temperature >= 0.1).
 
 ---
 
 ## GLM-5.3-Flash production numbers (8x MI50, Sept 2026)
 
-Everything below is **measured on 8x AMD MI50 32GB (gfx906, PCIe, no matrix
-cores)** -- the "can't run big models" GPUs -- serving
-**GLM-5.3-Flash-AWQ-INT4** with this fork. Yes, really.
+All numbers below were measured on 8x AMD MI50 32GB (gfx906, PCIe, no
+matrix cores) serving GLM-5.3-Flash-AWQ-INT4 with this fork.
 
-| Metric | Number | Notes |
+| Metric | Result | Notes |
 |---|---|---|
-| Context | **262,144 tokens** | needle-validated at 249k @ 50% depth |
-| Concurrency @256k | **2.25x** | two full-length conversations at once |
-| Context @128k | 4.72x concurrency | needles green to 100k |
-| Context @512k | 1.08x single-shot | deep-prefill transient known |
-| Decode | **15.2-16.6 tok/s** | +45% via MTP + collective tuning |
-| Prefill | **318 tok/s @ 60k** | union-GEMM sparse-MLA path shipped (needle-gated @ 71k) |
-| All-reduce (8-way) | **132 us** (was 456) | ACS register reprogramming |
-| KV pool | 590k tokens @256k cfg | custom mamba-state pool decoupling |
+| Context | 262,144 tokens | needle-validated at 249k @ 50% depth |
+| Concurrency @256k | 2.25x | two full-length conversations at once |
+| Context @128k | 4.72x concurrency | needle recall passing to 100k |
+| Context @512k | 1.08x single-shot | known transient during deep prefill |
+| Decode | 15.2-16.6 tok/s | +45% from MTP and collective tuning |
+| Prefill | 318 tok/s @ 60k | union-GEMM sparse-MLA path (validated at 71k) |
+| All-reduce (8-way) | 132 us (was 456) | ACS register reprogramming |
+| KV pool | 590k tokens @256k config | mamba-state pool decoupling |
 
-Engineering highlights behind the numbers:
+Engineering notes behind the numbers:
 
-- **KV pool decoupling**: KDA recurrent state removed from the per-block
-  charge (20.76 -> 2.94 MiB/block) -- turns 8x32GB into a 256k-context box.
-- **fp16 KDA recurrent state** (fp32 accumulate in-kernel): +50% KV
-  capacity, quality-verified with needle probes at 100k depth.
-- **ACS register map cracked**: PLX downstream + Intel root-port ACS
-  redirect bits reprogrammed live (post-boot unit) -> 3.5x collectives.
-- **MTP speculative decoding glue** for the GLM53 draft layer (gated off
-  pending a verify fix).
-- Survived: corrupt-pyc segfaults from hard resets, triton compile
-  marathons masquerading as hangs, one very stubborn switch fabric, and a
-  GPU wedge that gaslit an entire evening with degenerate `!!!!` outputs --
-  root-caused to hung DMA fences, not code (postmortem in
-  PREFILL_KERNEL_PLAN.md). Every kernel path is needle-gated before it
-  ships; exact-prompt/token-count repro is the house style.
+- KV pool decoupling: the KDA recurrent state was removed from the
+  per-block charge (20.76 -> 2.94 MiB/block), which is what allows 256k
+  context on 8x32GB.
+- fp16 KDA recurrent state (fp32 accumulate in-kernel): +50% KV
+  capacity, quality verified with needle probes at 100k depth.
+- ACS register reprogramming: PLX downstream ports and Intel root-port
+  ACS redirect bits reprogrammed after boot, giving 3.5x collectives.
+- MTP speculative-decoding glue for the GLM53 draft layer (written;
+  gated off pending a verify fix).
+- Operational issues seen along the way: corrupt-pyc segfaults from
+  hard resets, long triton compile times that look like hangs, and one
+  GPU wedge producing degenerate `!!!!` outputs that was root-caused to
+  hung DMA fences rather than code (postmortem in
+  PREFILL_KERNEL_PLAN.md). Kernel changes are validated with needle
+  probes before they ship, using exact-prompt and exact-token-count
+  reproduction.
 
 ---
 
 ## Mini Install Guide for GFX906
 
-### 🐳 Using Pre-built Docker Image (Recommended)
+### Using the pre-built Docker image (recommended)
 
-If you have Docker and the AMD ROCm drivers/kernel modules installed on your host system, you can totally bypass the complex manual source-build installation by using our pre-built Docker image.
+If you have Docker and the AMD ROCm drivers/kernel modules installed on your host system, you can skip the manual source build by using the pre-built Docker image.
 
 ```bash
 # Pull the latest image (or specify a tag instead of latest, e.g. v0.19.1rc0.x)
@@ -167,11 +169,11 @@ sudo docker run -it --name vllm-gfx906-mobydick -v /home:/home --network host --
   --ipc=host aiinfos/vllm-gfx906-mobydick:latest
 ```
 
-Once inside the container, you are all set! You can immediately start serving models (see the Quickstart example below).
+Once inside the container, you can start serving models (see the Quickstart example below).
 
 ---
 
-### 🛠️ Manual Build from Source
+### Manual build from source
 
 If you prefer to build and install from source on your bare metal instead, follow the steps below:
 
