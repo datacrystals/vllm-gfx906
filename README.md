@@ -3,9 +3,10 @@
 This fork runs two current-generation open models on 8x AMD MI50 32GB
 GPUs (gfx906: no matrix cores, PCIe gen3, no working P2P):
 GLM-5.3-Flash and multimodal MiMo-V2.6-Flash (audio/image/video
-input). Both serve at 256k-token context in production. All numbers
-below are measured on the box; the per-model sections document the
-engineering work behind them.
+input). Neither model ran on this hardware at all before the port work
+in this fork. Both serve at 256k-token context in production. All
+numbers below are measured on the box; the per-model sections document
+the engineering work behind them.
 
 ## Models running on this fork
 
@@ -14,10 +15,12 @@ engineering work behind them.
 | MiMo-V2.6-Flash (omni: audio/image/video in, text out, thinking) | in-house INT4 (compressed-tensors g32 asymmetric, `mimo_convert_int4` from [XiaomiMiMo/MiMo-V2.6-Flash-RL](https://huggingface.co/XiaomiMiMo/MiMo-V2.6-Flash-RL)) | 24.6 tok/s | 737 tok/s @20k / 521 @60k | 262,144 ctx; 3x resident @256k |
 | GLM-5.3-Flash | [cyankiwi/GLM-5.3-Flash-AWQ-INT4](https://huggingface.co/cyankiwi/GLM-5.3-Flash-AWQ-INT4) (activation-aware AWQ) | 15.2-16.6 tok/s | 318 tok/s @60k | 262,144 ctx (needle @249k); 2.25x @256k |
 
-Speed at first boot, before optimization: MiMo-V2.6-Flash ran at 12.2
-tok/s decode and 142-156 tok/s prefill (2026-10-03, untuned kernels);
-GLM-5.3-Flash ran at ~6.2 tok/s decode and ~74 tok/s prefill (clean
-box, 8k context). See the per-model sections for each step.
+The first stable serve of each model -- after the port work, with
+unoptimized kernels -- was: MiMo-V2.6-Flash at 12.2 tok/s decode and
+142-156 tok/s prefill (2026-10-03), and GLM-5.3-Flash at ~6.2 tok/s
+decode and ~74 tok/s prefill (clean box, 8k context). Before that,
+neither model ran on this hardware. See the per-model sections for
+each step after first boot.
 
 ### Optimizations shipped
 
@@ -52,7 +55,7 @@ reasoning content returned separately.
 
 | Metric | Result | Notes |
 |---|---|---|
-| Speed at first boot | 12.2 tok/s decode, 142-156 tok/s prefill | 2026-10-03, untuned kernels, before the router-gate fix, chunk-size sweep, and dqmm path below |
+| First stable serve after the port | 12.2 tok/s decode, 142-156 tok/s prefill | The model did not run on this hardware before the port work. 2026-10-03, untuned kernels, before the router-gate fix, chunk-size sweep, and dqmm path below |
 | Decode (1 user) | 24.5 tok/s | Target was 20. Was 28.07 before the numerics fixes; the ~13% difference is the cost of the fp32-atomic corrections (independent of chunk-size setting: 24.37 @2048 vs 24.68 @16384, 5 reps each) |
 | Needle-in-haystack recall | passing at 24k / 65k / 130k | 24k re-run after the numerics fix; 65k/130k measured before it (130k = 102.9k tokens, 803s) |
 | 150k agent-behavior probe | passing (MIMO-150K-V3B) | 5/5 facts recalled, 3/3 traps refused at 177k tokens |
@@ -133,7 +136,7 @@ matrix cores) serving GLM-5.3-Flash-AWQ-INT4 with this fork.
 
 | Metric | Result | Notes |
 |---|---|---|
-| Speed at first boot | ~6.2 tok/s decode, ~74 tok/s prefill | measured on a clean boot at 8k context, before the optimizations below |
+| First stable serve after the port | ~6.2 tok/s decode, ~74 tok/s prefill | The model did not run on this hardware before the port work. Measured on a clean boot at 8k context, before the optimizations below |
 | Context | 262,144 tokens | needle-validated at 249k @ 50% depth |
 | Concurrency @256k | 2.25x | two full-length conversations at once |
 | Context @128k | 4.72x concurrency | needle recall passing to 100k |
