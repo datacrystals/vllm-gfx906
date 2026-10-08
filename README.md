@@ -1,13 +1,23 @@
-## Models running on this fork (8x AMD MI50 32GB, gfx906)
+# vLLM for AMD MI50 (gfx906)
 
-Two production models; all numbers measured live on the box (no matrix
-cores, PCIe gen3, no working P2P). Details are in the per-model
-sections below.
+This fork runs two current-generation open models on 8x AMD MI50 32GB
+GPUs (gfx906: no matrix cores, PCIe gen3, no working P2P):
+GLM-5.3-Flash and multimodal MiMo-V2.6-Flash (audio/image/video
+input). Both serve at 256k-token context in production. All numbers
+below are measured on the box; the per-model sections document the
+engineering work behind them.
+
+## Models running on this fork
 
 | Model | Weights | Decode | Prefill | Context / concurrency |
 |---|---|---|---|---|
 | MiMo-V2.6-Flash (omni: audio/image/video in, text out, thinking) | in-house INT4 (compressed-tensors g32 asymmetric, `mimo_convert_int4` from [XiaomiMiMo/MiMo-V2.6-Flash-RL](https://huggingface.co/XiaomiMiMo/MiMo-V2.6-Flash-RL)) | 24.6 tok/s | 737 tok/s @20k / 521 @60k | 262,144 ctx; 3x resident @256k |
 | GLM-5.3-Flash | [cyankiwi/GLM-5.3-Flash-AWQ-INT4](https://huggingface.co/cyankiwi/GLM-5.3-Flash-AWQ-INT4) (activation-aware AWQ) | 15.2-16.6 tok/s | 318 tok/s @60k | 262,144 ctx (needle @249k); 2.25x @256k |
+
+Speed at first boot, before optimization: MiMo-V2.6-Flash ran at 12.2
+tok/s decode and 142-156 tok/s prefill (2026-10-03, untuned kernels);
+GLM-5.3-Flash ran at ~6.2 tok/s decode and ~74 tok/s prefill (clean
+box, 8k context). See the per-model sections for each step.
 
 ### Optimizations shipped
 
@@ -42,6 +52,7 @@ reasoning content returned separately.
 
 | Metric | Result | Notes |
 |---|---|---|
+| Speed at first boot | 12.2 tok/s decode, 142-156 tok/s prefill | 2026-10-03, untuned kernels, before the router-gate fix, chunk-size sweep, and dqmm path below |
 | Decode (1 user) | 24.5 tok/s | Target was 20. Was 28.07 before the numerics fixes; the ~13% difference is the cost of the fp32-atomic corrections (independent of chunk-size setting: 24.37 @2048 vs 24.68 @16384, 5 reps each) |
 | Needle-in-haystack recall | passing at 24k / 65k / 130k | 24k re-run after the numerics fix; 65k/130k measured before it (130k = 102.9k tokens, 803s) |
 | 150k agent-behavior probe | passing (MIMO-150K-V3B) | 5/5 facts recalled, 3/3 traps refused at 177k tokens |
@@ -122,6 +133,7 @@ matrix cores) serving GLM-5.3-Flash-AWQ-INT4 with this fork.
 
 | Metric | Result | Notes |
 |---|---|---|
+| Speed at first boot | ~6.2 tok/s decode, ~74 tok/s prefill | measured on a clean boot at 8k context, before the optimizations below |
 | Context | 262,144 tokens | needle-validated at 249k @ 50% depth |
 | Concurrency @256k | 2.25x | two full-length conversations at once |
 | Context @128k | 4.72x concurrency | needle recall passing to 100k |
@@ -154,28 +166,9 @@ Engineering notes behind the numbers:
 
 ## Mini Install Guide for GFX906
 
-### Using the pre-built Docker image (recommended)
-
-If you have Docker and the AMD ROCm drivers/kernel modules installed on your host system, you can skip the manual source build by using the pre-built Docker image.
-
-```bash
-# Pull the latest image (or specify a tag instead of latest, e.g. v0.19.1rc0.x)
-docker pull aiinfos/vllm-gfx906-mobydick:latest
-
-# Run the container interactively (Make sure to pass ROCm devices into the container and have your models in host /home/ as we map /home:/home; feel free to edit the command below to a safer one, without priviledged and others)
-sudo docker run -it --name vllm-gfx906-mobydick -v /home:/home --network host --device=/dev/kfd --device=/dev/dri \
-  --group-add video --group-add $(getent group render | cut -d: -f3) \
-  --cap-add=SYS_ADMIN --volume /sys:/sys:ro --pid=host --privileged \
-  --ipc=host aiinfos/vllm-gfx906-mobydick:latest
-```
-
-Once inside the container, you can start serving models (see the Quickstart example below).
-
----
-
 ### Manual build from source
 
-If you prefer to build and install from source on your bare metal instead, follow the steps below:
+Follow the steps below to build and install from source on bare metal:
 
 ### ROCm 6.3.4 & amdgpu drivers
 
@@ -205,7 +198,7 @@ cat /proc/cmdline  # >>> to check: must return: "BOOT_IMAGE=... iommu=pt"
 
 ```
 
-### vllm-gfx906-mobydick fork with its dependencies (python, torch, triton, flash-attn, etc)
+### This fork and its dependencies (python, torch, triton, flash-attn, etc)
 
 ```code
 
@@ -276,10 +269,10 @@ git clone https://github.com/ai-infos/flash-attention-gfx906.git
 cd flash-attention-gfx906
 FLASH_ATTENTION_TRITON_AMD_ENABLE="TRUE" python setup.py install
 
-# VLLM-GFX906-MOBYDICK main
+# this fork
 
-git clone https://github.com/ai-infos/vllm-gfx906-mobydick.git
-cd vllm-gfx906-mobydick
+git clone https://github.com/datacrystals/vllm-gfx906.git
+cd vllm-gfx906
 pip install 'amdsmi>=6.3,<6.4'
 pip install -r requirements/rocm.txt
 pip wheel --no-build-isolation -v -w dist . 2>&1 | tee build.log
